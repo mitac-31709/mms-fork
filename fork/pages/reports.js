@@ -69,6 +69,7 @@ export function render(data, ctx) {
 
   const saveTimers = new Map();
   const dirtyFields = new Set();
+  const datesTouched = new Set();
 
   paint();
   if (state.selectedId != null) openDetail(state.selectedId, { focus: false });
@@ -361,6 +362,66 @@ export function render(data, ctx) {
     }];
   }
 
+  function displayLabel(f) {
+    if (f.name === 'start_at') return '作成開始日';
+    if (f.name === 'end_at') return '作成終了日';
+    return f.label || '本文';
+  }
+
+  function isoDate(value) {
+    const m = String(value || '').trim().match(/^(\d{4}-\d{2}-\d{2})/);
+    return m ? m[1] : null;
+  }
+
+  /** 編集した開始・終了を一覧の「期間」へ反映する。両方揃うまで期間未設定。 */
+  function applyDatesToRow(r) {
+    const fields = fieldList(r);
+    const startField = fields.find((f) => f.name === 'start_at');
+    const endField = fields.find((f) => f.name === 'end_at');
+    if (!startField && !endField) return false;
+    const startISO = isoDate(startField?.value);
+    const endISO = isoDate(endField?.value);
+    if (startField) r.startISO = startISO;
+    if (endField) r.endISO = endISO;
+    r.periodText = startISO && endISO
+      ? `${fmtShort(startISO)} – ${fmtShort(endISO)}`
+      : '期間未設定';
+    datesTouched.add(String(r.id));
+    return true;
+  }
+
+  async function reloadList() {
+    if (ctx.demo) return;
+    const snapshot = rows.map((r) => ({ ...r }));
+    try {
+      const data = await api.reports({ refresh: true });
+      const next = (data.reports || []).map(normalize);
+      const prevById = new Map(snapshot.map((r) => [String(r.id), r]));
+      rows.splice(0, rows.length, ...next.map((n) => {
+        const prev = prevById.get(String(n.id));
+        if (!prev) return n;
+        const merged = { ...n };
+        if (prev.detailLoaded) {
+          merged.fields = prev.fields;
+          merged.detailLoaded = true;
+          merged.body = prev.body;
+          merged.meta = prev.meta;
+          merged.timeline = prev.timeline;
+          merged.lockedBy = prev.lockedBy;
+        }
+        if (datesTouched.has(String(n.id))) {
+          merged.startISO = prev.startISO;
+          merged.endISO = prev.endISO;
+          merged.periodText = prev.periodText;
+        }
+        return merged;
+      }));
+    } catch {
+      // 一覧の取り直しに失敗しても、直前に反映した行は残す
+    }
+    paint();
+  }
+
   function paintSaveState(stateName, text) {
     const el = document.getElementById('save-state');
     if (!el) return;
@@ -381,12 +442,20 @@ export function render(data, ctx) {
     if (ctx.demo) {
       dirtyFields.delete(key);
       paintSaveState('saved', '保存しました');
+      if (field.name === 'start_at' || field.name === 'end_at') {
+        applyDatesToRow(report);
+        paint();
+      }
       return;
     }
     try {
       await api.saveReportField(report.id, field.name, field.value ?? '');
       dirtyFields.delete(key);
       paintSaveState('saved', '保存しました');
+      if (field.name === 'start_at' || field.name === 'end_at') {
+        applyDatesToRow(report);
+        paint();
+      }
     } catch (e) {
       paintSaveState('error', e?.message || '保存できませんでした');
     }
@@ -468,7 +537,7 @@ export function render(data, ctx) {
         });
       if (!isDate) control.value = f.value || '';
       return h('div', { class: 'field' },
-        h('label', { class: 'field__label', for: fieldId, text: f.label || '本文' }),
+        h('label', { class: 'field__label', for: fieldId, text: displayLabel(f) }),
         control,
         h('p', { class: 'field__hint', id: hintId },
           f.lockedBy
@@ -502,7 +571,7 @@ export function render(data, ctx) {
         h('span', { 'aria-hidden': 'true', text: '●' }),
         h('span', {
           id: 'panel-lock-text',
-          text: lockedFields.map((f) => `${f.label || '項目'}は ${f.lockedBy} さんが編集中です`).join('。')
+          text: lockedFields.map((f) => `${displayLabel(f)}は ${f.lockedBy} さんが編集中です`).join('。')
         }))
     ];
   }
@@ -522,11 +591,13 @@ export function render(data, ctx) {
       class: 'btn btn--primary', type: 'button', id: 'panel-save',
       onclick: async () => {
         save.dataset.state = 'loading';
+        const hadPending = fieldList(r).some((f) => dirtyFields.has(`${r.id}:${f.name}`));
         try {
           await flushReport(r);
-          save.dataset.state = 'success';
-          paintSaveState('saved', '保存しました');
-          setTimeout(() => { delete save.dataset.state; }, 1200);
+          applyDatesToRow(r);
+          panel.close();
+          if (hadPending) toasts.push('保存しました');
+          reloadList();
         } catch (e) {
           delete save.dataset.state;
           paintSaveState('error', e?.message || '保存できませんでした');
