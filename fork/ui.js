@@ -27,12 +27,37 @@ export function h(tag, attrs = {}, ...children) {
   return node;
 }
 
-/** ステータス。色だけに意味を持たせず、必ずグリフを添える。 */
+/** ステータス。色だけに意味を持たせず、必ずグリフを添える。
+ *  注文の語彙（保留中〜キャンセル済み）と週報の未完了/完了の両方に対応。 */
+const STATUS_TONES = {
+  完了: { tone: 'done', glyph: '✓' },
+  返却済み: { tone: 'done', glyph: '✓' },
+  既読: { tone: 'done', glyph: '✓' },
+  受取済み: { tone: 'received', glyph: '✓' },
+  保留中: { tone: 'pending', glyph: '●' },
+  注文済み: { tone: 'ordered', glyph: '▣' },
+  受取可能: { tone: 'available', glyph: '◇' },
+  キャンセル済み: { tone: 'cancelled', glyph: '×' },
+  未完了: { tone: 'open', glyph: '○' }
+};
+
 export function statusPill(value, { doneWhen = ['完了', '返却済み', '既読'] } = {}) {
   const label = value || '—';
-  const done = doneWhen.includes(label);
-  return h('span', { class: `status ${done ? 'status--done' : 'status--open'}` },
-    h('span', { class: 'status__glyph', 'aria-hidden': 'true', text: done ? '✓' : '○' }),
+  const known = STATUS_TONES[label];
+  let tone;
+  let glyph;
+  if (known) {
+    tone = known.tone;
+    glyph = known.glyph;
+  } else if (doneWhen.includes(label)) {
+    tone = 'done';
+    glyph = '✓';
+  } else {
+    tone = 'open';
+    glyph = '○';
+  }
+  return h('span', { class: `status status--${tone}` },
+    h('span', { class: 'status__glyph', 'aria-hidden': 'true', text: glyph }),
     label);
 }
 

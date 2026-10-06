@@ -191,7 +191,47 @@ test('/api/orders は列見出し 6 つと空状態を取る', async () => {
         `${k} が数値でも null でもない: ${o[k]}`);
       assert.ok(!Number.isNaN(o[k]), `${k} が NaN`);
     }
+    assert.ok(o.id == null || typeof o.id === 'number' || typeof o.id === 'string',
+      `id の型が不正: ${o.id}`);
+    if (o.status) {
+      const known = [
+        '保留中', '注文済み', '受取可能', '受取済み', 'キャンセル済み',
+        '未完了', '完了'
+      ];
+      // 未知の語彙も素通しはするが、現行の既知語彙なら印が落ちていること
+      if (known.includes(o.status) || /保留|注文|受取|キャンセル|完了/.test(o.status)) {
+        assert.ok(!/^[⏳📋✅📦❌]/.test(o.status), `ステータスの絵文字が残っている: ${o.status}`);
+      }
+    }
   }
+});
+
+test('/api/notifications の既読化口がある', async () => {
+  const list = await (await get('/api/notifications')).json();
+  assertLiveOrCached(list, '/api/notifications');
+  assert.ok(Array.isArray(list.notifications));
+  if (!list.notifications.length) {
+    // 0 件でも一括既読は通る想定
+    const res = await get('/api/notifications/mark_all_as_read', { method: 'PATCH' });
+    assert.equal(res.status, 200, await res.clone().text());
+    const body = await res.json();
+    assert.equal(body.ok, true);
+    return;
+  }
+  const target = list.notifications.find((n) => n.id != null && n.read !== true)
+    || list.notifications.find((n) => n.id != null);
+  if (!target) {
+    assert.ok(true, '既読化できる通知が無い');
+    return;
+  }
+  const res = await get(
+    `/api/notifications/${encodeURIComponent(target.id)}/mark_as_read`,
+    { method: 'PATCH' }
+  );
+  assert.equal(res.status, 200, await res.clone().text());
+  const body = await res.json();
+  assert.equal(body.ok, true);
+  assert.equal(String(body.id), String(target.id));
 });
 
 test('/api/equipments', async () => {
@@ -216,11 +256,15 @@ test('/api/notifications', async () => {
   const body = await (await get('/api/notifications')).json();
   assertLiveOrCached(body, '/api/notifications');
   assert.equal(body.heading, '通知');
-  assert.equal(body.empty.title, '通知はありません');
   assert.ok(Array.isArray(body.notifications));
+  if (body.notifications.length === 0) {
+    assert.equal(body.empty?.title, '通知はありません');
+  }
   for (const n of body.notifications) {
     assert.ok(n.read === null || typeof n.read === 'boolean',
       `read が boolean でも null でもない: ${n.read}`);
+    assert.ok(n.id == null || typeof n.id === 'number' || typeof n.id === 'string',
+      `id の型が不正: ${n.id}`);
   }
 });
 

@@ -7,13 +7,13 @@
  * `parse.js` から取り込んで重複させない。
  *
  * **検証できたことと、できなかったこと。**
- * クローンを取得したのは学生アカウントで、注文・機材・貸出・通知の
- * どれも 0 件だった。そのため
+ * 2026-10 時点の学生/TA アカウントで取り直した結果:
  *
- *   - 見出し / リード文 / 列見出し / 空状態の文言 → 実 HTML で検証済み
- *   - 1 件ずつの行・カード・項目の構造 → **一度も見ていない（未検証）**
+ *   - 注文の行 id は UUID。ステータスは
+ *     保留中 / 注文済み / 受取可能 / 受取済み / キャンセル済み
+ *   - 通知は 1 件以上あり、`PATCH .../mark_as_read` が使える
+ *   - 機材・貸出のカード行は引き続き空のことがある
  *
- * 未検証の部分は各関数の直前にその旨を書く。形を埋めるために値を作らず、
  * 読めなければ null を返して呼び出し側に判断を渡す。
  */
 
@@ -160,13 +160,19 @@ export function parseDashboard(html) {
   };
 }
 
+/** 注文ステータスの先頭装飾（絵文字・✓○）を外す。
+ *  語彙自体は作らず、表示用の印だけ落とす（週報の `✓ 完了` → `完了` と同じ）。 */
+export function cleanOrderStatus(value) {
+  return String(value || '')
+    .replace(/^(?:[✓○×]|⏳|📋|✅|📦|❌|🚫)\s*/u, '')
+    .trim();
+}
+
 /** 注文の行。
- *  **未検証**: 取得したアカウントは注文が 0 件で、データの入った行を見ていない。
- *  行を `<tr id="order_<id>">` で引くのは公開されている Stimulus の実装
- *  （`user_order_sidebar_controller` の `#order_<id>`、`side_panel_controller` の
- *  `[id^="order_"], [id^="order_card_"]`）に合わせたもの。
- *  ここでは `<tbody>` の中だけを見るので、モバイル用の `order_card_<id>` とは重複しない。
- *  ステータスは語彙を作らないよう、そのまま素通しする。 */
+ *  行 id は数字または UUID（`id="order_<id>"`）。Stimulus の
+ *  `#order_<id>` / `[id^="order_"], [id^="order_card_"]` に合わせる。
+ *  `<tbody>` だけを見るので、モバイル用の `order_card_<id>` とは重複しない。
+ *  ステータス語彙は素通し。先頭の絵文字や ✓○ だけ落とす。 */
 export function parseOrderRows(html, columns) {
   const tbody = main(html).match(/<tbody\b[^>]*>([\s\S]*?)<\/tbody>/);
   if (!tbody) return [];
@@ -185,25 +191,28 @@ export function parseOrderRows(html, columns) {
     const byLabel = {};
     labels.forEach((label, i) => { byLabel[label] = cells[i] ?? ''; });
 
-    const idMatch = tr[1].match(/id="order_(\d+)"/);
+    const idMatch = tr[1].match(/id="order_([^"]+)"/);
     const unitPrice = byLabel['単価'] ?? '';
     const quantity = byLabel['数量'] ?? '';
     const total = byLabel['合計'] ?? '';
-    const createdAt = byLabel['作成日'] ?? '';
+    // 学生画面は「作成日」、TA 画面は「作成日時」。どちらでも拾う。
+    const createdAt = byLabel['作成日'] ?? byLabel['作成日時'] ?? '';
+    const statusRaw = byLabel['ステータス'] ?? '';
+    const status = cleanOrderStatus(statusRaw);
 
     rows.push({
-      id: idMatch ? Number(idMatch[1]) : null,
+      id: idMatch ? parseIdToken(idMatch[1]) : null,
       product: byLabel['商品'] ?? cells[0] ?? '',
       unitPrice,
       quantity,
       total,
-      status: byLabel['ステータス'] ?? '',
+      status,
       createdAt,
       createdAtISO: toIso(createdAt),
       unitPriceValue: toNumber(unitPrice),
       quantityValue: toNumber(quantity),
       totalValue: toNumber(total),
-      cells
+      cells: cells.map((c, i) => (labels[i] === 'ステータス' ? status : c))
     });
   }
   return rows;
@@ -328,11 +337,12 @@ export function parseLoans(html) {
 }
 
 /** 通知の 1 件。
- *  **未検証**: 取得したアカウントは通知が 0 件で、項目を 1 件も見ていない。
  *  印は公開されている JS に合わせる（`notification_list_controller` は
  *  `[data-notification-id]` を、`notifications.js` は `dataset.notificationId` を見る）。
- *  `read` は既読/未読の描き分けが分からないので、`data-read` が無ければ null。
- *  真偽値を当てずっぽうで作らない。 */
+ *  `read` は次の順で決める。真偽値を当てずっぽうで作らない。
+ *    1. `data-read="true|false"`
+ *    2. 未読向けの `data-notification-read`（既読ボタン）があれば未読
+ *    3. どちらも無ければ null（わからない） */
 function parseNotificationItem(item) {
   const { name, rest } = splitCard(item.html);
 
@@ -346,6 +356,9 @@ function parseNotificationItem(item) {
   if (body && at && !time) body = body.replace(at, ' ').replace(/\s+/g, ' ').trim() || null;
 
   const flag = item.html.match(/data-read="(true|false)"/);
+  let read = null;
+  if (flag) read = flag[1] === 'true';
+  else if (/\bdata-notification-read\b/.test(item.html)) read = false;
 
   return {
     id: item.id,
@@ -353,7 +366,7 @@ function parseNotificationItem(item) {
     body: body || null,
     at,
     atISO,
-    read: flag ? flag[1] === 'true' : null
+    read
   };
 }
 

@@ -61,6 +61,15 @@ export const api = {
   loans: (opts) => request('/api/loans', opts),
   notifications: (opts) => request('/api/notifications', opts),
   unreadCount: (opts) => request('/api/notifications/unread_count', opts),
+  /** 1 件を既読にする。Worker が元アプリの mark_as_read を中継する。 */
+  markNotificationRead: (id) => request(
+    `/api/notifications/${encodeURIComponent(id)}/mark_as_read`,
+    { method: 'PATCH' }
+  ),
+  /** すべて既読。 */
+  markAllNotificationsRead: () => request('/api/notifications/mark_all_as_read', {
+    method: 'PATCH'
+  }),
 
   /** Discord Incoming Webhook へ Worker 経由で送る。即時中継（URL は残さない）。 */
   notifyDiscord: (webhookUrl, payload) => request('/api/notify/discord', {
