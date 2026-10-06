@@ -221,7 +221,7 @@ export function buildParseAlertPayload({ path, origin, reasons, html, error }) {
       ].filter(Boolean).join('\n'),
       color: 0xc4552d,
       timestamp: new Date().toISOString(),
-      footer: { text: 'DISCORD_WEBHOOK · meister-reports-fork' }
+      footer: { text: 'DISCORD_WEBHOOK · mms-fork' }
     }]
   };
 }

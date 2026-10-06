@@ -620,7 +620,7 @@ export default {
     // 1 Cron ですべて処理せず、購読ごとに別 HTTP（別 CPU 枠）へ振る。
     ctx.waitUntil((async () => {
       const summary = await dispatchCronTicks(env, ctx, {
-        baseUrl: 'https://meister-reports-fork.mitac31709.workers.dev'
+        baseUrl: 'https://mms-fork.mitac31709.workers.dev'
       });
       console.log('notify-cron-dispatch', JSON.stringify(summary));
     })());

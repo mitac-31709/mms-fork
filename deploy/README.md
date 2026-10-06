@@ -3,8 +3,8 @@
 Meister Management System のフォークを Cloudflare Workers（静的資産つき）で公開する。
 データは元アプリ（`https://meister.tokyo-ct.org`）から取る。
 
-- 公開 URL: `https://meister-reports-fork.mitac31709.workers.dev`
-- Worker 名: `meister-reports-fork`
+- 公開 URL: `https://mms-fork.mitac31709.workers.dev`
+- Worker 名: `mms-fork`
 - アカウント: `Mitac31709@gmail.com's Account`（`ca0ec10c7f6f85ea5700ca86e63e580d`）
 
 **認証は利用者ごと。** 誰でも自分の元アプリのアカウントでログインできる。
@@ -203,7 +203,7 @@ Discord の即時中継は `POST /api/notify/discord`（ログイン必須）。
 ## デプロイ
 
 ```bash
-cd tasks/2026-08-05-meister-reports-ui-fork/deploy
+cd deploy
 export CLOUDFLARE_ACCOUNT_ID=ca0ec10c7f6f85ea5700ca86e63e580d
 ./build.sh
 npx wrangler deploy
@@ -234,12 +234,12 @@ node --test test/parse.test.mjs test/parse-pages.test.mjs test/parse-guard.test.
 
 # API。元アプリに実際にログインするので資格情報が必要
 MEISTER_EMAIL=... MEISTER_PASSWORD=... node --test test/api.test.mjs
-BASE=https://meister-reports-fork.mitac31709.workers.dev \
+BASE=https://mms-fork.mitac31709.workers.dev \
   MEISTER_EMAIL=... MEISTER_PASSWORD=... node --test test/api.test.mjs
 
 # ログインから 6 画面・ログアウトまで実ブラウザで
 MEISTER_EMAIL=... MEISTER_PASSWORD=... python3 test/e2e.py
-python3 test/e2e.py --base https://meister-reports-fork.mitac31709.workers.dev
+python3 test/e2e.py --base https://mms-fork.mitac31709.workers.dev
 ```
 
 ローカル開発は `.dev.vars` を置いて `npx wrangler dev --port 8788`。

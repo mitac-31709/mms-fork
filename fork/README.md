@@ -60,7 +60,7 @@
 静的配信だけ（デモデータになる）。
 
 ```bash
-cd tasks/2026-08-05-meister-reports-ui-fork/fork
+cd fork
 python3 -m http.server 8081
 # http://localhost:8081/?demo=1
 ```

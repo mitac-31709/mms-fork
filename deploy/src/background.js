@@ -163,7 +163,7 @@ export async function processSubscription(sub, env, {
   unreadCountFn = unreadCount,
   htmlFn = html,
   forwardFn = forwardDiscord,
-  origin = 'https://meister-reports-fork.mitac31709.workers.dev',
+  origin = 'https://mms-fork.mitac31709.workers.dev',
   now = () => new Date()
 } = {}) {
   if (!sub || sub.disabled) {
@@ -251,7 +251,7 @@ export async function runBackgroundNotify(env, deps = {}) {
  * （動的に「1 人 1 Cron」を増やすことはできない。Free は Cron 5 本まで。）
  */
 export async function dispatchCronTicks(env, ctx, {
-  baseUrl = 'https://meister-reports-fork.mitac31709.workers.dev',
+  baseUrl = 'https://mms-fork.mitac31709.workers.dev',
   listIds,
   fetchFn = fetch
 } = {}) {

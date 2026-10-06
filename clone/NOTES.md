@@ -33,7 +33,7 @@ pages=19 assets=36
 すればどちらのフェーズもそのまま開ける。ただし配信には `serve.py` を使う。
 
 ```bash
-cd tasks/2026-08-05-meister-reports-ui-fork/clone && python3 serve.py
+cd clone && python3 serve.py
 # http://localhost:8080/auth/reports.html
 # http://localhost:8080/public/index.html
 ```

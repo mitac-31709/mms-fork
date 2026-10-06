@@ -1,4 +1,4 @@
-# 2026-08-05-meister-reports-ui-fork
+# mms-fork
 
 `https://meister.tokyo-ct.org/reports`（Meister Management System の週報一覧）をクローンし、
 UI をより使いやすくしたフォークを作る。デザイン判断は Hallmark スキルに従う。
@@ -19,7 +19,7 @@ UI をより使いやすくしたフォークを作る。デザイン判断は H
 
 ## 公開先
 
-`https://meister-reports-fork.mitac31709.workers.dev`
+`https://mms-fork.mitac31709.workers.dev`
 
 **誰でも自分の元アプリのアカウントでログインして使える。** フォーク側に共有の
 資格情報は無い。データは元アプリから取る。元アプリは Rails のサーバサイド
@@ -62,7 +62,7 @@ vendor/hallmark/site/css/tokens.css               # 20 テーマのトークン�
 ## クロールの実行
 
 ```bash
-cd tasks/2026-08-05-meister-reports-ui-fork/clone
+cd clone
 python3 crawl.py --out site --max-pages 400
 ```
 
@@ -78,7 +78,7 @@ python3 test_crawl.py
 取得済みのページは `serve.py` で開ける。
 
 ```bash
-cd tasks/2026-08-05-meister-reports-ui-fork/clone
+cd clone
 python3 serve.py
 # http://localhost:8080/auth/reports.html   ログイン後の週報一覧
 # http://localhost:8080/public/index.html   未ログインのトップ
@@ -94,14 +94,14 @@ python3 serve.py
 デモデータで画面だけ見る。
 
 ```bash
-cd tasks/2026-08-05-meister-reports-ui-fork/fork
+cd fork
 python3 -m http.server 8081        # http://localhost:8081/?demo=1
 ```
 
 実データでログインから試す。
 
 ```bash
-cd tasks/2026-08-05-meister-reports-ui-fork/deploy
+cd deploy
 npx wrangler dev --port 8788       # http://127.0.0.1:8788/
 ```
 
