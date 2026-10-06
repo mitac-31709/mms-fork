@@ -363,6 +363,25 @@ test('見つからない項目は null（形を埋めるために値を作らな
     { heading: null, unreadText: null, empty: null, notifications: [] });
 });
 
+test('通知 id が UUID でも拾える', () => {
+  const uuid = '8b293839-a910-4bd6-b468-4915b9cefd19';
+  const html = notifications.replace(
+    /(<div class="bg-white shadow overflow-hidden sm:rounded-md">)([\s\S]*?)(\n  <\/div>)/,
+    (_all, open, _inner, close) => `${open}
+    <ul>
+      <li data-notification-id="${uuid}" data-read="false">
+        <h3>週報の提出期限です</h3>
+        <p>10/01 の週報を提出してください。</p>
+      </li>
+    </ul>${close}`
+  );
+  const items = parseNotifications(html).notifications;
+  assert.equal(items.length, 1);
+  assert.equal(items[0].id, uuid);
+  assert.equal(items[0].read, false);
+  assert.equal(items[0].title, '週報の提出期限です');
+});
+
 test('印の無い通知は器の <li> から拾い、id は null にする', () => {
   const unmarked = notifications.replace(
     /(<div class="bg-white shadow overflow-hidden sm:rounded-md">)([\s\S]*?)(\n  <\/div>)/,

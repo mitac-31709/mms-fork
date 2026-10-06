@@ -46,6 +46,16 @@ describe('background pickNewNotifications', () => {
     assert.equal(r.notify, true);
     assert.deepEqual(r.items.map((n) => n.id), [3]);
   });
+
+  test('id が無くても件数の増加は送る', () => {
+    const r = pickNewNotifications({
+      prev: { primed: true, count: 0, seenIds: [] },
+      count: 1,
+      notifications: []
+    });
+    assert.equal(r.notify, true);
+    assert.match(r.items[0].body, /0 件から 1 件/);
+  });
 });
 
 describe('processSubscription', () => {
@@ -77,6 +87,29 @@ describe('processSubscription', () => {
     assert.match(sent[0].body.content, /1 件/);
     assert.equal(result.sub.primed, true);
     assert.ok(result.sub.seenIds.includes('9'));
+  });
+
+  test('項目 id が取れなくても未読が増えたら Discord へ送る', async () => {
+    const sent = [];
+    const result = await processSubscription({
+      id: 's-count',
+      cookie: 'c',
+      webhookUrl: 'https://discord.com/api/webhooks/1234567890123456789/abcdefghijklmnopqrstuvwx-yz_ABCDE',
+      primed: true,
+      count: 0,
+      seenIds: [],
+      disabled: false
+    }, {}, {
+      unreadCountFn: async () => ({ count: 1 }),
+      htmlFn: async () => '<main><h1>通知</h1><p>通知はありません</p></main>',
+      forwardFn: async (_url, body) => {
+        sent.push(body);
+        return { ok: true, status: 204 };
+      }
+    });
+    assert.equal(result.sent, 1);
+    assert.equal(sent.length, 1);
+    assert.match(sent[0].embeds[0].title, /未読/);
   });
 
   test('401 なら購読を無効化し Discord に知らせる', async () => {

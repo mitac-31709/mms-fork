@@ -67,6 +67,10 @@ export function render(data, ctx) {
     listHost,
     disclaimer);
 
+  const saveTimers = new Map();
+  const dirtyFields = new Set();
+  const datesTouched = new Set();
+
   paint();
   if (state.selectedId != null) openDetail(state.selectedId, { focus: false });
   return page;
@@ -294,8 +298,8 @@ export function render(data, ctx) {
         + 'ステータスは元アプリで確認できた「未完了 / 完了」の 2 値だけを使っています。'
       : 'これは UI 改善の検証用のフォークです。一覧は元アプリの週報一覧をそのまま読んで'
         + '表示しています。行を開くと `/reports/:id/edit` の詳細項目を取り、項目名は元アプリの'
-        + 'ラベルをそのまま使います。ステータスは元アプリで確認できた「未完了 / 完了」の'
-        + '2 値だけを使い、実データへの保存はこの画面からは送りません。';
+        + 'ラベルをそのまま使います。本文の変更は元アプリの自動保存へ送ります。'
+        + 'ステータスは元アプリで確認できた「未完了 / 完了」の 2 値だけを使います。';
   }
 
   function resetFilters() {
@@ -358,10 +362,131 @@ export function render(data, ctx) {
     }];
   }
 
+  function displayLabel(f) {
+    if (f.name === 'start_at') return '作成開始日';
+    if (f.name === 'end_at') return '作成終了日';
+    return f.label || '本文';
+  }
+
+  function isoDate(value) {
+    const m = String(value || '').trim().match(/^(\d{4}-\d{2}-\d{2})/);
+    return m ? m[1] : null;
+  }
+
+  /** 編集した開始・終了を一覧の「期間」へ反映する。両方揃うまで期間未設定。 */
+  function applyDatesToRow(r) {
+    const fields = fieldList(r);
+    const startField = fields.find((f) => f.name === 'start_at');
+    const endField = fields.find((f) => f.name === 'end_at');
+    if (!startField && !endField) return false;
+    const startISO = isoDate(startField?.value);
+    const endISO = isoDate(endField?.value);
+    if (startField) r.startISO = startISO;
+    if (endField) r.endISO = endISO;
+    r.periodText = startISO && endISO
+      ? `${fmtShort(startISO)} – ${fmtShort(endISO)}`
+      : '期間未設定';
+    datesTouched.add(String(r.id));
+    return true;
+  }
+
+  async function reloadList() {
+    if (ctx.demo) return;
+    const snapshot = rows.map((r) => ({ ...r }));
+    try {
+      const data = await api.reports({ refresh: true });
+      const next = (data.reports || []).map(normalize);
+      const prevById = new Map(snapshot.map((r) => [String(r.id), r]));
+      rows.splice(0, rows.length, ...next.map((n) => {
+        const prev = prevById.get(String(n.id));
+        if (!prev) return n;
+        const merged = { ...n };
+        if (prev.detailLoaded) {
+          merged.fields = prev.fields;
+          merged.detailLoaded = true;
+          merged.body = prev.body;
+          merged.meta = prev.meta;
+          merged.timeline = prev.timeline;
+          merged.lockedBy = prev.lockedBy;
+        }
+        if (datesTouched.has(String(n.id))) {
+          merged.startISO = prev.startISO;
+          merged.endISO = prev.endISO;
+          merged.periodText = prev.periodText;
+        }
+        return merged;
+      }));
+    } catch {
+      // 一覧の取り直しに失敗しても、直前に反映した行は残す
+    }
+    paint();
+  }
+
+  function paintSaveState(stateName, text) {
+    const el = document.getElementById('save-state');
+    if (!el) return;
+    el.dataset.state = stateName;
+    el.textContent = text;
+  }
+
+  function queueFieldSave(report, field) {
+    dirtyFields.add(`${report.id}:${field.name}`);
+    paintSaveState('saving', '保存中…');
+    const key = `${report.id}:${field.name}`;
+    clearTimeout(saveTimers.get(key));
+    saveTimers.set(key, setTimeout(() => { flushField(report, field); }, 500));
+  }
+
+  async function flushField(report, field) {
+    const key = `${report.id}:${field.name}`;
+    if (ctx.demo) {
+      dirtyFields.delete(key);
+      paintSaveState('saved', '保存しました');
+      if (field.name === 'start_at' || field.name === 'end_at') {
+        applyDatesToRow(report);
+        paint();
+      }
+      return;
+    }
+    try {
+      await api.saveReportField(report.id, field.name, field.value ?? '');
+      dirtyFields.delete(key);
+      paintSaveState('saved', '保存しました');
+      if (field.name === 'start_at' || field.name === 'end_at') {
+        applyDatesToRow(report);
+        paint();
+      }
+    } catch (e) {
+      paintSaveState('error', e?.message || '保存できませんでした');
+    }
+  }
+
+  async function flushReport(report) {
+    const pending = fieldList(report).filter((f) => dirtyFields.has(`${report.id}:${f.name}`));
+    if (ctx.demo) {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      for (const field of pending) dirtyFields.delete(`${report.id}:${field.name}`);
+      return;
+    }
+    for (const field of pending) {
+      const key = `${report.id}:${field.name}`;
+      clearTimeout(saveTimers.get(key));
+      await api.saveReportField(report.id, field.name, field.value ?? '');
+      dirtyFields.delete(key);
+    }
+  }
+
+  function toDatetimeLocal(value) {
+    if (!value) return '';
+    const s = String(value).trim();
+    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(s)) return s.slice(0, 16);
+    return '';
+  }
+
   function buildDetailBody(r, { editable, loading = false, error = null } = {}) {
     const rest = dueRest(r.dueISO, today);
     const fields = fieldList(r);
-    const locked = Boolean(r.lockedBy) || fields.some((f) => f.lockedBy) || !editable;
+    const lockedFields = fields.filter((f) => f.lockedBy);
 
     const saveState = h('span', {
       class: 'save-state', id: 'save-state', dataset: { state: 'idle' },
@@ -388,28 +513,32 @@ export function render(data, ctx) {
     const fieldNodes = fields.map((f, i) => {
       const fieldId = f.name === 'content' || i === 0 ? 'panel-text' : `panel-field-${f.name}`;
       const hintId = `${fieldId}-hint`;
-      let saveTimer = null;
-      const textarea = h('textarea', {
-        class: 'input textarea', id: fieldId, rows: 8,
-        'aria-describedby': hintId,
-        readonly: locked || Boolean(f.lockedBy) || null,
-        placeholder: editable && !f.value ? 'この週にやったことを書く' : null,
-        oninput: (e) => {
-          f.value = e.target.value;
-          if (f.name === 'content' || fields.length === 1) r.body = e.target.value;
-          saveState.dataset.state = 'saving';
-          saveState.textContent = '保存中…';
-          clearTimeout(saveTimer);
-          saveTimer = setTimeout(() => {
-            saveState.dataset.state = 'saved';
-            saveState.textContent = '保存しました';
-          }, 500);
-        }
-      });
-      textarea.value = f.value || '';
+      const lockedField = Boolean(f.lockedBy) || !editable;
+      const isDate = f.name === 'start_at' || f.name === 'end_at';
+      const oninput = (e) => {
+        f.value = e.target.value;
+        if (!isDate && (f.name === 'content' || fields.length === 1)) r.body = e.target.value;
+        if (editable && !f.lockedBy) queueFieldSave(r, f);
+      };
+      const control = isDate
+        ? h('input', {
+          class: 'input', type: 'datetime-local', id: fieldId,
+          'aria-describedby': hintId,
+          readonly: lockedField || null,
+          value: toDatetimeLocal(f.value),
+          oninput
+        })
+        : h('textarea', {
+          class: 'input textarea', id: fieldId, rows: 8,
+          'aria-describedby': hintId,
+          readonly: lockedField || null,
+          placeholder: editable && !lockedField && !f.value ? 'この週にやったことを書く' : null,
+          oninput
+        });
+      if (!isDate) control.value = f.value || '';
       return h('div', { class: 'field' },
-        h('label', { class: 'field__label', for: fieldId, text: f.label || '本文' }),
-        textarea,
+        h('label', { class: 'field__label', for: fieldId, text: displayLabel(f) }),
+        control,
         h('p', { class: 'field__hint', id: hintId },
           f.lockedBy
             ? `${f.lockedBy} さんが編集中のため読み取り専用です`
@@ -438,15 +567,11 @@ export function render(data, ctx) {
       }),
       ...fieldNodes,
       history,
-      locked && h('p', { class: 'lock', id: 'panel-lock' },
+      lockedFields.length > 0 && h('p', { class: 'lock', id: 'panel-lock' },
         h('span', { 'aria-hidden': 'true', text: '●' }),
         h('span', {
           id: 'panel-lock-text',
-          text: r.lockedBy
-            ? `${r.lockedBy} さんが編集中のため読み取り専用です`
-            : (editable
-              ? '読み取り専用です'
-              : '実データへの保存はこの画面からは送りません。元アプリで編集できます。')
+          text: lockedFields.map((f) => `${displayLabel(f)}は ${f.lockedBy} さんが編集中です`).join('。')
         }))
     ];
   }
@@ -459,22 +584,25 @@ export function render(data, ctx) {
     paint();
     syncUrl();
 
-    const editable = ctx.demo;
+    const editable = true;
     const needsFetch = !ctx.demo && !r.detailLoaded && r.id != null;
 
     const save = h('button', {
       class: 'btn btn--primary', type: 'button', id: 'panel-save',
-      onclick: () => {
+      onclick: async () => {
         save.dataset.state = 'loading';
-        setTimeout(() => {
-          save.dataset.state = 'success';
-          const saveState = document.getElementById('save-state');
-          if (saveState) {
-            saveState.dataset.state = 'saved';
-            saveState.textContent = '保存しました';
-          }
-          setTimeout(() => { delete save.dataset.state; }, 1200);
-        }, 400);
+        const hadPending = fieldList(r).some((f) => dirtyFields.has(`${r.id}:${f.name}`));
+        try {
+          await flushReport(r);
+          applyDatesToRow(r);
+          panel.close();
+          if (hadPending) toasts.push('保存しました');
+          reloadList();
+        } catch (e) {
+          delete save.dataset.state;
+          paintSaveState('error', e?.message || '保存できませんでした');
+          toasts.push(e?.message || '保存できませんでした');
+        }
       }
     }, '保存');
 

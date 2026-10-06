@@ -81,6 +81,16 @@ export function authenticityToken(html, { formAction } = {}) {
   return null;
 }
 
+/** Rails の CSRF。自動保存は meta の csrf-token を X-CSRF-Token に載せる。 */
+export function csrfToken(html) {
+  const meta = String(html || '').match(/<meta\b[^>]*name="csrf-token"[^>]*>/i);
+  if (meta) {
+    const content = meta[0].match(/\bcontent="([^"]+)"/);
+    if (content) return content[1];
+  }
+  return authenticityToken(html);
+}
+
 /** 集計チップ「未完了 0」「完了 0」「合計 0」 */
 export function parseCounts(html) {
   const counts = { 未完了: null, 完了: null, 合計: null };

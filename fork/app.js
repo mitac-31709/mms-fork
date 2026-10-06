@@ -369,14 +369,15 @@ const watcher = createWatcher({
   onBadge: setBadge,
   unreadCount: async () => {
     if (ctx.demo) return demoUnreadCount();
-    const result = await api.unreadCount();
+    // キャッシュのままだと未読の増加を見逃して Discord に届かない。
+    const result = await api.unreadCount({ refresh: true });
     // ポーリングのついでに購読の Cookie を更新（タブを閉じたあともしばらく使えるように）
     refreshBackgroundSubscription();
     return result;
   },
   notifications: async () => {
     if (ctx.demo) return demoNotifications();
-    return api.notifications();
+    return api.notifications({ refresh: true });
   },
   showBrowser: showBrowserNotification,
   sendDiscord: async (payload, webhookUrl) => {

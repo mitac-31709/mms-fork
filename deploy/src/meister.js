@@ -7,7 +7,9 @@
  * 画面 JSON のキャッシュは `page-cache.js` がセッション区画で行う（ここではしない）。
  */
 
-import { authenticityToken, looksLikeSignIn } from './parse.js';
+import {
+  authenticityToken, csrfToken, looksLikeSignIn, parseIdToken, parseReportFields
+} from './parse.js';
 
 export const ORIGIN = 'https://meister.tokyo-ct.org';
 const UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
@@ -329,4 +331,140 @@ export async function createOrder(cookie, fields) {
   }
 
   throw new ApiError(502, `元アプリの注文作成が ${posted.status} を返しました`);
+}
+
+/** 共同編集の auto_save が受け付ける本文項目。 */
+const REPORT_TEXT_FIELDS = new Set(['shortnote', 'progress', 'issue', 'plan']);
+/** 編集フォームの項目。日付はフォーム PATCH、本文は auto_save。 */
+const REPORT_FORM_FIELDS = ['start_at', 'end_at', 'shortnote', 'progress', 'issue', 'plan'];
+
+/**
+ * 週報の 1 項目を元アプリへ保存する。
+ * 本文（概要 / 進捗 / 課題 / 計画）は `PATCH /reports/:id/auto_save`。
+ * 開始日・終了日は編集フォームを、今の値を崩さないように埋めて PATCH する。
+ */
+export async function saveReportField(cookie, id, fieldName, content) {
+  const reportId = parseIdToken(id);
+  if (reportId == null) throw new ApiError(400, '週報の id が不正です');
+  if (!REPORT_FORM_FIELDS.includes(fieldName)) {
+    throw new ApiError(400, 'その項目は保存できません');
+  }
+  if (typeof content !== 'string') throw new ApiError(400, '保存する内容が必要です');
+  if (content.length > 20000) throw new ApiError(400, '本文が長すぎます');
+
+  const editPath = `/reports/${reportId}/edit`;
+  const formPage = await origin(editPath, { headers: { Accept: 'text/html' } }, cookie);
+  const formHtml = await formPage.text();
+  if (formPage.status !== 200 || looksLikeSignIn(formHtml)) {
+    throw new ApiError(401, 'ログインの有効期限が切れました。もう一度ログインしてください。',
+      { clearSession: true });
+  }
+  const token = csrfToken(formHtml);
+  if (!token) throw new ApiError(502, '週報フォームの authenticity_token が見つかりません');
+  const fresh = sessionCookieFrom(formPage) || cookie;
+
+  if (REPORT_TEXT_FIELDS.has(fieldName)) {
+    const posted = await origin(`/reports/${reportId}/auto_save`, {
+      method: 'PATCH',
+      body: JSON.stringify({ field_name: fieldName, content }),
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        'X-CSRF-Token': token,
+        'X-Requested-With': 'XMLHttpRequest',
+        Origin: ORIGIN,
+        Referer: `${ORIGIN}${editPath}`
+      }
+    }, fresh);
+
+    const body = await posted.text();
+    if (posted.status === 401 || looksLikeSignIn(body)) {
+      throw new ApiError(401, 'ログインの有効期限が切れました。もう一度ログインしてください。',
+        { clearSession: true });
+    }
+    if (posted.status >= 200 && posted.status < 300) {
+      let parsed = null;
+      if (body) {
+        try { parsed = JSON.parse(body); } catch { /* HTML 成功もありうる */ }
+      }
+      if (parsed && parsed.success === false) {
+        throw new ApiError(422, parsed.error || '週報を保存できませんでした');
+      }
+      return {
+        ok: true,
+        id: reportId,
+        fieldName,
+        cookie: sessionCookieFrom(posted) || fresh
+      };
+    }
+    if (posted.status === 422) {
+      let parsed = null;
+      try { parsed = JSON.parse(body); } catch { /* HTML の 422 もある */ }
+      const errors = parsed?.error ? [parsed.error] : parseFormErrors(body);
+      throw new ApiError(422, errors[0] || '週報を保存できませんでした', { details: errors });
+    }
+    if (posted.status !== 404) {
+      throw new ApiError(502, `元アプリの自動保存が ${posted.status} を返しました`);
+    }
+    // 404 のときだけフォーム更新に落とす（auto_save が無い項目）
+  }
+
+  // ページ先頭はログアウト用トークンなので、週報フォームのものを使う。
+  const formToken = authenticityToken(formHtml, { formAction: `/reports/${reportId}` }) || token;
+  const current = {};
+  for (const field of parseReportFields(formHtml)) {
+    if (REPORT_FORM_FIELDS.includes(field.name)) current[field.name] = field.value || '';
+  }
+  current[fieldName] = content;
+
+  const params = new URLSearchParams();
+  params.set('authenticity_token', formToken);
+  params.set('_method', 'patch');
+  for (const name of REPORT_FORM_FIELDS) {
+    if (current[name] != null) params.set(`report[${name}]`, current[name]);
+  }
+  params.set('commit', 'レポートを更新');
+
+  const posted = await origin(`/reports/${reportId}`, {
+    method: 'POST',
+    body: params.toString(),
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      Accept: 'text/html',
+      Origin: ORIGIN,
+      Referer: `${ORIGIN}${editPath}`
+    }
+  }, fresh);
+
+  if (posted.status >= 300 && posted.status < 400) {
+    return {
+      ok: true,
+      id: reportId,
+      fieldName,
+      cookie: sessionCookieFrom(posted) || fresh
+    };
+  }
+
+  const htmlBody = await posted.text();
+  if (looksLikeSignIn(htmlBody)) {
+    throw new ApiError(401, 'ログインの有効期限が切れました。もう一度ログインしてください。',
+      { clearSession: true });
+  }
+  if (posted.status === 200) {
+    const errors = parseFormErrors(htmlBody);
+    if (!errors.length) {
+      return {
+        ok: true,
+        id: reportId,
+        fieldName,
+        cookie: sessionCookieFrom(posted) || fresh
+      };
+    }
+    throw new ApiError(422, errors[0] || '週報を保存できませんでした', { details: errors });
+  }
+  if (posted.status === 422) {
+    const errors = parseFormErrors(htmlBody);
+    throw new ApiError(422, errors[0] || '週報を保存できませんでした', { details: errors });
+  }
+  throw new ApiError(502, `元アプリの週報更新が ${posted.status} を返しました`);
 }

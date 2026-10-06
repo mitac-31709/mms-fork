@@ -50,11 +50,17 @@ export const api = {
   dashboard: (opts) => request('/api/dashboard', opts),
   reports: (opts) => request('/api/reports', opts),
   report: (id, opts) => request(`/api/reports/${encodeURIComponent(id)}`, opts),
+  /** 週報の 1 項目を元アプリへ保存する。本文は auto_save、日付はフォーム更新。 */
+  saveReportField: (id, fieldName, content) => request(`/api/reports/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fieldName, content })
+  }),
   orders: (opts) => request('/api/orders', opts),
   equipments: (opts) => request('/api/equipments', opts),
   loans: (opts) => request('/api/loans', opts),
   notifications: (opts) => request('/api/notifications', opts),
-  unreadCount: () => request('/api/notifications/unread_count'),
+  unreadCount: (opts) => request('/api/notifications/unread_count', opts),
 
   /** Discord Incoming Webhook へ Worker 経由で送る。即時中継（URL は残さない）。 */
   notifyDiscord: (webhookUrl, payload) => request('/api/notify/discord', {

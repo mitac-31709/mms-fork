@@ -17,7 +17,7 @@
  * 読めなければ null を返して呼び出し側に判断を渡す。
  */
 
-import { text, toIso, parseColumns, parseEmptyState } from './parse.js';
+import { text, toIso, parseColumns, parseEmptyState, parseIdToken } from './parse.js';
 
 /** 「¥1,200」「1,200円」「2」を数値にする。読めなければ null。
  *  0 と「読めなかった」を混ぜないため、NaN も 0 も作らない。 */
@@ -76,8 +76,9 @@ function repeatedChildren(inner) {
 }
 
 /** 開きタグの属性が attrRe にマッチする要素を、最も外側だけ返す。
- *  attrRe は id を 1 番目の捕捉に取ること。 */
-function markedElements(html, attrRe) {
+ *  attrRe は id を捕捉に取ること。mapId の既定は数字（貸出）。
+ *  通知は UUID もあるので parseIdToken を渡す。 */
+function markedElements(html, attrRe, mapId = (raw) => (raw == null ? null : Number(raw))) {
   const out = [];
   const openRe = /<(\w+)\b([^>]*)>/g;
   let m;
@@ -86,7 +87,7 @@ function markedElements(html, attrRe) {
     if (!found) continue;
     const id = found.slice(1).find((v) => v != null);
     const { inner, end } = sliceFrom(html, m.index + m[0].length, m[1]);
-    out.push({ id: id == null ? null : Number(id), html: m[0] + inner, inner });
+    out.push({ id: mapId(id), html: m[0] + inner, inner });
     openRe.lastIndex = end;
   }
   return out;
@@ -356,10 +357,15 @@ function parseNotificationItem(item) {
   };
 }
 
-/** 通知の一覧。印が付いた要素を先に探し、無ければ器の中の <li> を数える。 */
+/** 通知の一覧。印が付いた要素を先に探し、無ければ器の中の <li> を数える。
+ *  id は数字または UUID。元アプリの他モデルが UUID なので、数字だけだと取りこぼす。 */
 export function parseNotificationItems(html) {
   const body = main(html);
-  const marked = markedElements(body, /id="notification_(\d+)"|data-notification-id="(\d+)"/);
+  const marked = markedElements(
+    body,
+    /id="notification_([^"]+)"|data-notification-id="([^"]+)"/,
+    (raw) => parseIdToken(raw)
+  );
   if (marked.length) return marked.map(parseNotificationItem);
 
   const list = elementInner(body, /<div\b[^>]*class="[^"]*\bbg-white\b[^"]*"[^>]*>/, 'div');

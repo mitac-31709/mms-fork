@@ -23,12 +23,14 @@ export function validateWebhookUrl(raw) {
   }
 
   const host = parsed.hostname.toLowerCase();
-  if (host !== 'discord.com' && host !== 'discordapp.com') {
+  if (host !== 'discord.com' && host !== 'discordapp.com'
+    && host !== 'canary.discord.com' && host !== 'ptb.discord.com') {
     return { ok: false, error: 'Discord の Webhook URL だけ受け付けます' };
   }
 
   // /api/webhooks/<snowflake>/<token>
-  if (!/^\/api\/webhooks\/\d{5,32}\/[A-Za-z0-9_-]{20,200}\/?$/.test(parsed.pathname)) {
+  // トークンは URL-safe に加え、途中の '.' を許す（新しい Webhook トークン）。
+  if (!/^\/api\/webhooks\/\d{5,32}\/[A-Za-z0-9._-]{20,200}\/?$/.test(parsed.pathname)) {
     return { ok: false, error: 'Webhook URL のパスが不正です' };
   }
 
@@ -82,11 +84,21 @@ function sanitizeEmbed(embed) {
   return out.title || out.description ? out : null;
 }
 
+/**
+ * Discord の手前は Cloudflare で、User-Agent が空や Workers 既定だと
+ * 403 error 1010（bot 署名）で落とす。ブラウザ相当の UA を付ける。
+ */
+const DISCORD_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+
 /** Webhook へ転送する。Discord の応答本文は呼び出し側にそのまま返す。 */
 export async function forwardDiscord(webhookUrl, body, fetchImpl = fetch) {
   const res = await fetchImpl(webhookUrl, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      'User-Agent': DISCORD_UA
+    },
     body: JSON.stringify(body)
   });
 

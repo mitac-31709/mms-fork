@@ -41,7 +41,20 @@ export function pickNewNotifications({ prev, count, notifications }) {
   }
 
   const shouldNotify = countGrew || candidates.length > 0;
-  const fresh = shouldNotify ? candidates : [];
+  let fresh = shouldNotify ? candidates : [];
+
+  // 一覧から id が 1 件も取れないとき（UUID 未対応の HTML など）は、
+  // 未読件数の増加だけで知らせる。既知 id だけの増加は送らない。
+  const identifiable = items.some((n) => n && n.id != null);
+  if (prev.primed && countGrew && fresh.length === 0 && !identifiable) {
+    fresh = [{
+      id: `unread-count-${count}`,
+      title: '未読の通知が増えました',
+      body: `未読が ${prev.count || 0} 件から ${count} 件になりました。通知一覧を開いて確認してください。`,
+      read: false,
+      atISO: new Date().toISOString()
+    }];
+  }
 
   return {
     notify: fresh.length > 0,

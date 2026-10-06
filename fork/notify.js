@@ -134,7 +134,20 @@ export function pickNewNotifications({ prev, count, notifications }) {
 
   // 件数が増えていなくても、新しい id が来ていれば届ける。
   const shouldNotify = countGrew || candidates.length > 0;
-  const fresh = shouldNotify ? candidates : [];
+  let fresh = shouldNotify ? candidates : [];
+
+  // 一覧から id が 1 件も取れないときは、未読件数の増加だけで届ける。
+  // 既知の id しか無いのに件数だけ増えた場合は送らない（二重送信を避ける）。
+  const identifiable = items.some((n) => n && n.id != null);
+  if (prev.primed && countGrew && fresh.length === 0 && !identifiable) {
+    fresh = [{
+      id: `unread-count-${count}`,
+      title: '未読の通知が増えました',
+      body: `未読が ${prev.count || 0} 件から ${count} 件になりました。通知一覧を開いて確認してください。`,
+      read: false,
+      atISO: new Date().toISOString()
+    }];
+  }
 
   return {
     notify: fresh.length > 0,
@@ -273,8 +286,9 @@ export function createWatcher(deps) {
           await deps.sendDiscord(buildDiscordPayload(result.items, {
             origin: deps.origin || ''
           }), prefs.webhookUrl);
-        } catch {
-          // Discord 失敗はバッジ更新を止めない
+        } catch (e) {
+          // Discord 失敗はバッジ更新を止めない。原因はコンソールに残す。
+          console.error('Discord 通知の送信に失敗:', e?.message || e);
         }
       }
     } catch {

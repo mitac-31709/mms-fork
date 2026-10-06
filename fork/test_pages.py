@@ -315,6 +315,10 @@ def check_reports(page) -> None:
             "body": "",
             "fields": [
                 {"name": "shortnote", "label": "概要", "value": "測定をやり直し中。",
+                 "lockedBy": None},
+                {"name": "start_at", "label": "開始日", "value": "2026-10-01T09:00",
+                 "lockedBy": None},
+                {"name": "end_at", "label": "終了日", "value": "2026-10-07T18:00",
                  "lockedBy": None}
             ],
             "meta": [{"label": "提出期限", "value": "2026/10/01 17:00"}],
@@ -328,11 +332,21 @@ def check_reports(page) -> None:
     check("概要" in body, f"元アプリの項目名が出ていない: {body!r}")
     check(page.input_value("#panel-text") == "測定をやり直し中。",
           f"詳細の本文が出ていない: {page.input_value('#panel-text')!r}")
-    check(page.locator("#panel-save").count() == 0,
-          "実データなのに保存ボタンを出している")
+    check(page.locator("#panel-save").count() == 1,
+          "実データでも保存ボタンが必要")
+    readonly = page.locator("#panel-text").get_attribute("readonly")
+    check(readonly is None, f"本文が読み取り専用になっている: {readonly!r}")
+    check("自動で保存" in body, f"自動保存の案内が無い: {body!r}")
+    check("作成開始日" in body and "作成終了日" in body,
+          f"作成日の表示名が違う: {body!r}")
     check("10: (未定)" in page.inner_text("#view"),
           "タイトル下のチーム名が出ていない")
-    print("  週報: 詳細の項目名を素通し / 実データは保存ボタンなし / UUID 行")
+    page.locator("#panel-save").click()
+    page.wait_for_selector("#panel", state="hidden", timeout=5000)
+    row = page.locator("#view tbody tr").first.inner_text()
+    check("10/01" in row and "10/07" in row,
+          f"保存後に一覧の期間が更新されない: {row!r}")
+    print("  週報: 詳細の項目名を素通し / 実データも編集できる / UUID 行 / 保存で閉じて一覧更新")
 
 
 def main() -> int:

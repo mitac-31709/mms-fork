@@ -5,6 +5,7 @@
  * - `GET  /api/me`         ログイン中の利用者
  * - `GET  /api/<page>`     元アプリの画面を JSON にして返す
  * - `GET  /api/reports/:id` 週報の詳細（`/reports/:id/edit` の HTML。本文項目は編集画面にある）
+ * - `PATCH /api/reports/:id` 週報の 1 項目を元アプリへ保存する（auto_save / フォーム）
  * - `POST /api/orders`     新しい注文を元アプリへ作る
  * - `POST /api/notify/discord`  即時の Discord 中継
  * - `POST /api/notify/subscribe`  タブ閉鎖後も Discord へ送る購読を KV に登録
@@ -25,7 +26,9 @@ import {
   dispatchCronTicks, processSubscription, verifyCronTickToken
 } from './background.js';
 import { forwardDiscord, sanitizeDiscordBody, validateWebhookUrl } from './discord.js';
-import { ApiError, createOrder, html, signIn, signOut, unreadCount } from './meister.js';
+import {
+  ApiError, createOrder, html, saveReportField, signIn, signOut, unreadCount
+} from './meister.js';
 import {
   FRESH_MS, PAGE_CACHE_PATHS, STALE_WHILE_REVALIDATE_MS,
   freshness, pageCache, userCacheKey
@@ -242,13 +245,29 @@ async function handleDiscordNotify(request) {
 
   const result = await forwardDiscord(webhook.url, payload.body);
   if (!result.ok) {
+    const detail = discordFailureDetail(result);
     return json({
-      error: 'Discord への送信に失敗しました',
+      error: detail
+        ? `Discord への送信に失敗しました（${result.status}: ${detail}）`
+        : `Discord への送信に失敗しました（${result.status}）`,
       discordStatus: result.status,
       discord: result.body
     }, 502);
   }
   return json({ ok: true, discordStatus: result.status });
+}
+
+function discordFailureDetail(result) {
+  const message = result?.body && typeof result.body === 'object'
+    ? (result.body.message || result.body.error || '')
+    : '';
+  const raw = typeof result?.raw === 'string' ? result.raw : '';
+  const text = String(message || raw).replace(/\s+/g, ' ').trim();
+  if (!text) return '';
+  if (/error code:\s*1010/i.test(text)) {
+    return 'Cloudflare がリクエストを拒否しました（error 1010）';
+  }
+  return text.slice(0, 180);
 }
 
 async function handleOrderCreate(request, env) {
@@ -285,6 +304,44 @@ async function handleOrderCreate(request, env) {
     redirectedTo: result.redirectedTo,
     productName: String(body?.productName ?? '').trim()
   }, 201, headers);
+}
+
+/** 週報の 1 項目を元アプリへ保存する。 */
+async function handleReportFieldSave(request, env, rawId) {
+  const id = parseIdToken(rawId);
+  if (id == null) return json({ error: 'そのような口はありません' }, 404);
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: 'JSON の本文が必要です' }, 400);
+  }
+
+  const session = await currentSession(request, env);
+  if (!session) return unauthorized();
+
+  const fieldName = typeof body?.fieldName === 'string' ? body.fieldName.trim() : '';
+  const content = typeof body?.content === 'string' ? body.content : null;
+  const result = await saveReportField(session.cookie, id, fieldName, content);
+
+  const headers = {};
+  if (result.cookie && result.cookie !== session.cookie) {
+    const token = await seal(
+      {
+        cookie: result.cookie,
+        name: session.name,
+        badge: session.badge
+      },
+      env.SESSION_SECRET
+    );
+    headers['Set-Cookie'] = setCookieHeader(token);
+  }
+
+  const userKey = await userCacheKey(result.cookie || session.cookie);
+  await pageCache.invalidate(userKey, [`/reports/${id}/edit`, '/reports']);
+
+  return json({ ok: true, id: result.id, fieldName: result.fieldName }, 200, headers);
 }
 
 /** タブ閉鎖後も Discord へ送る購読を登録 / 更新する。 */
@@ -484,6 +541,11 @@ async function handleApi(request, url, env, ctx) {
     return handleOrderCreate(request, env);
   }
 
+  const reportWrite = path.match(/^\/api\/reports\/([^/]+)$/);
+  if (reportWrite && request.method === 'PATCH') {
+    return handleReportFieldSave(request, env, reportWrite[1]);
+  }
+
   if (request.method !== 'GET') {
     return json({ error: 'GET のみ受け付けます' }, 405, { Allow: 'GET' });
   }
@@ -509,10 +571,12 @@ async function handleApi(request, url, env, ctx) {
 
   if (path === '/api/notifications/unread_count') {
     const userKey = await userCacheKey(session.cookie);
+    const refresh = url.searchParams.get('refresh') === '1';
     const data = await pageCache.load({
       userKey,
       path: '/notifications/unread_count',
-      ctx,
+      ctx: refresh ? null : ctx,
+      mode: refresh ? 'refresh' : 'swr',
       fetchFresh: async () => {
         const unread = await unreadCount(session.cookie);
         return {

@@ -18,7 +18,7 @@ Worker は資格情報を保存しない。共有の資格情報も持たない�
 | --- | --- |
 | `/dashboard` `/reports` `/orders` `/equipments` `/loans` `/notifications` | HTML |
 | `/notifications/unread_count` | **JSON**（`{"count":0}`）— 唯一 |
-| `/reports/:id/auto_save` | POST 用。JSON を受ける（このフォークからは呼ばない） |
+| `/reports/:id/auto_save` | PATCH。本文項目の自動保存。フォークの `PATCH /api/reports/:id` が中継する |
 
 加えてブラウザから直接は呼べない。CORS ヘッダが無く、セッション Cookie は
 `HttpOnly` + `SameSite=Lax` なので、別オリジンの静的ページからは送れない。
@@ -94,6 +94,7 @@ Worker 側にログイン状態を持たないので、認証用の KV / D1 は�
 | `GET` | `/api/dashboard` | ダッシュボード |
 | `GET` | `/api/reports` | 週報一覧 |
 | `GET` | `/api/reports/:id` | 週報詳細（`/reports/:id/edit` の HTML。id は数字または UUID） |
+| `PATCH` | `/api/reports/:id` | 週報の 1 項目を保存（`{ fieldName, content }`） |
 | `GET` | `/api/orders` | 注文一覧 |
 | `POST` | `/api/orders` | 新しい注文を元アプリへ作成 |
 | `GET` | `/api/equipments` | 機材 |
@@ -286,10 +287,10 @@ Worker を通らない。`run_worker_first` で API だけ先に通す。
 issue / plan、ラベルは 概要 / 進捗 / 課題 / 計画）。詳細画面には本文が無く、
 提出期限・作業期間とコメント欄がある。他リストはまだ 0 件。
 
-**書き込みは注文作成だけ。** 週報の本文の自動保存と削除は元アプリに送らない。
-実データのときは詳細を `/reports/:id/edit` から読んで表示し、保存ボタンは出さない。
-`?demo=1` の同梱データでのみ週報の編集と削除の挙動を確かめられる。注文はパネルから
-作成でき、Worker が `/orders/new` の CSRF トークンを取って元アプリへ POST する。
+**書き込みは注文作成と週報の項目保存。** 週報の本文（概要 / 進捗 / 課題 / 計画）は
+`PATCH /reports/:id/auto_save` へ、開始日・終了日は編集フォームの PATCH へ送る。
+削除は元アプリに送らない。詳細は `/reports/:id/edit` を読んでパネルで編集する。
+注文はパネルから作成でき、Worker が `/orders/new` の CSRF トークンを取って元アプリへ POST する。
 
 **TA / 管理者画面はフォークしていない。** 検証に使えたアカウントでは
 `/ta/**` `/admin/**` が `/dashboard` にリダイレクトされるため、実物を見ていない。

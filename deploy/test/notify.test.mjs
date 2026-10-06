@@ -36,6 +36,13 @@ describe('validateWebhookUrl', () => {
     assert.equal(validateWebhookUrl(url).ok, true);
   });
 
+  test('トークン中のドットを許す', () => {
+    const url = 'https://discord.com/api/webhooks/1234567890123456789/abcdefghijklmnopqrst.uvwx-yz_ABCDE';
+    const r = validateWebhookUrl(url);
+    assert.equal(r.ok, true);
+    assert.equal(r.url, url);
+  });
+
   test('不正なものを拒む', () => {
     for (const bad of [
       '',
@@ -84,6 +91,7 @@ describe('forwardDiscord', () => {
     assert.equal(result.status, 200);
     assert.equal(calls[0].url, GOOD_HOOK);
     assert.equal(calls[0].init.method, 'POST');
+    assert.match(calls[0].init.headers['User-Agent'], /Mozilla\/5\.0/);
     assert.equal(JSON.parse(calls[0].init.body).content, 'hi');
   });
 
@@ -135,6 +143,18 @@ describe('pickNewNotifications', () => {
     });
     assert.equal(r.notify, false);
     assert.equal(r.next.count, 5);
+  });
+
+  test('id が取れなくても未読件数の増加は届ける', () => {
+    const r = pickNewNotifications({
+      prev: { primed: true, count: 0, seenIds: [] },
+      count: 2,
+      notifications: [{ id: null, title: 'お知らせ', read: null }]
+    });
+    assert.equal(r.notify, true);
+    assert.equal(r.items.length, 1);
+    assert.match(r.items[0].title, /未読/);
+    assert.equal(r.next.count, 2);
   });
 });
 
