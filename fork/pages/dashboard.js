@@ -27,6 +27,13 @@ const LINKS = [
   ['/notifications', '通知']
 ];
 
+/** 進行中の注文。元アプリの現行語彙 + 旧「未完了」。 */
+const OPEN_ORDER_STATUSES = new Set(['保留中', '注文済み', '受取可能', '未完了']);
+
+function isOpenOrder(status) {
+  return OPEN_ORDER_STATUSES.has(status);
+}
+
 async function settle(promise) {
   try {
     return await promise;
@@ -81,7 +88,7 @@ export function render(data, ctx) {
         reports: data.reports,
         openCount: reports ? openReports.length : null,
         orderOpen: orders
-          ? orders.filter((o) => o.status === '未完了').length : null,
+          ? orders.filter((o) => isOpenOrder(o.status)).length : null,
         orderTotal: orders ? orders.length : null,
         loanSections,
         unread,
@@ -166,11 +173,11 @@ function reportPath(id) {
 
 function ordersList(orders, ctx) {
   if (!orders) return null;
-  const open = orders.filter((o) => o.status === '未完了').slice(0, 4);
+  const open = orders.filter((o) => isOpenOrder(o.status)).slice(0, 4);
   if (!open.length) return null;
   return h('section', { class: 'board__section' },
     h('div', { class: 'section__head' },
-      h('h2', { class: 'section__title', text: '未完了の注文' }),
+      h('h2', { class: 'section__title', text: '進行中の注文' }),
       h('p', { class: 'section__count', text: `${open.length} 件` })),
     h('div', { class: 'itemlist' }, open.map((o) => h('button', {
       class: 'item item--button', type: 'button',
@@ -209,7 +216,7 @@ function tallyColumn({ reports, openCount, orderOpen, orderTotal, loanSections, 
     rows.push(tally('未読の通知', unread, () => go(ctx, '/notifications')));
   }
   if (orderOpen != null) {
-    rows.push(tally('注文 未完了', orderOpen, () => go(ctx, '/orders')));
+    rows.push(tally('注文 進行中', orderOpen, () => go(ctx, '/orders')));
   } else if (orderTotal != null) {
     rows.push(tally('注文', orderTotal, () => go(ctx, '/orders')));
   }

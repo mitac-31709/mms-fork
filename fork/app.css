@@ -940,6 +940,33 @@ kbd {
   color: var(--color-neutral);
 }
 .status--open { background: var(--color-paper); color: var(--color-ink); }
+.status--pending {
+  background: var(--color-status-pending-bg);
+  border-color: color-mix(in oklch, var(--color-status-pending) 35%, var(--color-rule));
+  color: var(--color-status-pending);
+}
+.status--ordered {
+  background: var(--color-status-ordered-bg);
+  border-color: color-mix(in oklch, var(--color-status-ordered) 35%, var(--color-rule));
+  color: var(--color-status-ordered);
+}
+.status--available {
+  background: var(--color-status-available-bg);
+  border-color: color-mix(in oklch, var(--color-status-available) 35%, var(--color-rule));
+  color: var(--color-status-available);
+}
+.status--received {
+  background: var(--color-status-received-bg);
+  border-color: color-mix(in oklch, var(--color-status-received) 35%, var(--color-rule));
+  color: var(--color-status-received);
+}
+.status--cancelled {
+  background: var(--color-status-cancelled-bg);
+  border-color: var(--color-rule);
+  color: var(--color-status-cancelled);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
 .status__glyph { font-family: var(--font-mono); }
 
 /* 期限：残り日数を添える。元データから導けるので捏造ではない。 */

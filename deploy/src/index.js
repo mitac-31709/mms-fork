@@ -7,6 +7,8 @@
  * - `GET  /api/reports/:id` 週報の詳細（`/reports/:id/edit` の HTML。本文項目は編集画面にある）
  * - `PATCH /api/reports/:id` 週報の 1 項目を元アプリへ保存する（auto_save / フォーム）
  * - `POST /api/orders`     新しい注文を元アプリへ作る
+ * - `PATCH /api/notifications/:id/mark_as_read`  通知を既読にする
+ * - `PATCH /api/notifications/mark_all_as_read`  通知をすべて既読にする
  * - `POST /api/notify/discord`  即時の Discord 中継
  * - `POST /api/notify/subscribe`  タブ閉鎖後も Discord へ送る購読を KV に登録
  * - `DELETE /api/notify/subscribe`  購読を削除
@@ -27,7 +29,8 @@ import {
 } from './background.js';
 import { forwardDiscord, sanitizeDiscordBody, validateWebhookUrl } from './discord.js';
 import {
-  ApiError, createOrder, html, saveReportField, signIn, signOut, unreadCount
+  ApiError, createOrder, html, markAllNotificationsRead, markNotificationRead,
+  saveReportField, signIn, signOut, unreadCount
 } from './meister.js';
 import {
   FRESH_MS, PAGE_CACHE_PATHS, STALE_WHILE_REVALIDATE_MS,
@@ -344,6 +347,44 @@ async function handleReportFieldSave(request, env, rawId) {
   return json({ ok: true, id: result.id, fieldName: result.fieldName }, 200, headers);
 }
 
+/** 通知の既読化後に Cookie を更新し、通知系キャッシュを落とす。 */
+async function withSessionRefresh(session, env, result, body) {
+  const headers = {};
+  if (result.cookie && result.cookie !== session.cookie) {
+    const token = await seal(
+      {
+        cookie: result.cookie,
+        name: session.name,
+        badge: session.badge
+      },
+      env.SESSION_SECRET
+    );
+    headers['Set-Cookie'] = setCookieHeader(token);
+  }
+  const userKey = await userCacheKey(result.cookie || session.cookie);
+  await pageCache.invalidate(userKey, ['/notifications', '/notifications/unread_count']);
+  return json(body, 200, headers);
+}
+
+async function handleNotificationMarkRead(request, env, rawId) {
+  const id = parseIdToken(rawId);
+  if (id == null) return json({ error: 'そのような口はありません' }, 404);
+
+  const session = await currentSession(request, env);
+  if (!session) return unauthorized();
+
+  const result = await markNotificationRead(session.cookie, id);
+  return withSessionRefresh(session, env, result, { ok: true, id: result.id });
+}
+
+async function handleNotificationMarkAllRead(request, env) {
+  const session = await currentSession(request, env);
+  if (!session) return unauthorized();
+
+  const result = await markAllNotificationsRead(session.cookie);
+  return withSessionRefresh(session, env, result, { ok: true });
+}
+
 /** タブ閉鎖後も Discord へ送る購読を登録 / 更新する。 */
 async function handleSubscribe(request, env, session) {
   if (!env.NOTIFY_SUBS) {
@@ -539,6 +580,15 @@ async function handleApi(request, url, env, ctx) {
 
   if (path === '/api/orders' && request.method === 'POST') {
     return handleOrderCreate(request, env);
+  }
+
+  if (path === '/api/notifications/mark_all_as_read' && request.method === 'PATCH') {
+    return handleNotificationMarkAllRead(request, env);
+  }
+
+  const notifMark = path.match(/^\/api\/notifications\/([^/]+)\/mark_as_read$/);
+  if (notifMark && request.method === 'PATCH') {
+    return handleNotificationMarkRead(request, env, notifMark[1]);
   }
 
   const reportWrite = path.match(/^\/api\/reports\/([^/]+)$/);

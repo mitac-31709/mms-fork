@@ -468,3 +468,88 @@ export async function saveReportField(cookie, id, fieldName, content) {
   }
   throw new ApiError(502, `元アプリの週報更新が ${posted.status} を返しました`);
 }
+
+/** 通知ページから CSRF を取り、既読 API を叩くときの共通前段。 */
+async function notificationCsrf(cookie) {
+  const page = await origin('/notifications', { headers: { Accept: 'text/html' } }, cookie);
+  const pageHtml = await page.text();
+  if (page.status !== 200 || looksLikeSignIn(pageHtml)) {
+    throw new ApiError(401, 'ログインの有効期限が切れました。もう一度ログインしてください。',
+      { clearSession: true });
+  }
+  const token = csrfToken(pageHtml);
+  if (!token) throw new ApiError(502, '通知画面の CSRF トークンが見つかりません');
+  return { token, cookie: sessionCookieFrom(page) || cookie };
+}
+
+/**
+ * 1 件を既読にする。元アプリの `PATCH /notifications/:id/mark_as_read`
+ * （`notification_list_controller` / `notifications.js` と同じ口）。
+ */
+export async function markNotificationRead(cookie, id) {
+  const nid = parseIdToken(id);
+  if (nid == null) throw new ApiError(400, '通知の id が不正です');
+
+  const { token, cookie: fresh } = await notificationCsrf(cookie);
+  const posted = await origin(`/notifications/${nid}/mark_as_read`, {
+    method: 'PATCH',
+    body: '{}',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'text/vnd.turbo-stream.html, application/json, */*',
+      'X-CSRF-Token': token,
+      'X-Requested-With': 'XMLHttpRequest',
+      Origin: ORIGIN,
+      Referer: `${ORIGIN}/notifications`
+    }
+  }, fresh);
+
+  const body = await posted.text();
+  if (posted.status === 401 || looksLikeSignIn(body)) {
+    throw new ApiError(401, 'ログインの有効期限が切れました。もう一度ログインしてください。',
+      { clearSession: true });
+  }
+  if (posted.status === 404) {
+    throw new ApiError(404, 'その通知は見つかりません');
+  }
+  if (posted.status < 200 || posted.status >= 300) {
+    throw new ApiError(502, `元アプリの既読化が ${posted.status} を返しました`);
+  }
+  return {
+    ok: true,
+    id: nid,
+    cookie: sessionCookieFrom(posted) || fresh
+  };
+}
+
+/**
+ * すべて既読。元アプリの `PATCH /notifications/mark_all_as_read`。
+ */
+export async function markAllNotificationsRead(cookie) {
+  const { token, cookie: fresh } = await notificationCsrf(cookie);
+  const posted = await origin('/notifications/mark_all_as_read', {
+    method: 'PATCH',
+    body: '{}',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'text/vnd.turbo-stream.html, application/json, */*',
+      'X-CSRF-Token': token,
+      'X-Requested-With': 'XMLHttpRequest',
+      Origin: ORIGIN,
+      Referer: `${ORIGIN}/notifications`
+    }
+  }, fresh);
+
+  const body = await posted.text();
+  if (posted.status === 401 || looksLikeSignIn(body)) {
+    throw new ApiError(401, 'ログインの有効期限が切れました。もう一度ログインしてください。',
+      { clearSession: true });
+  }
+  if (posted.status < 200 || posted.status >= 300) {
+    throw new ApiError(502, `元アプリの一括既読が ${posted.status} を返しました`);
+  }
+  return {
+    ok: true,
+    cookie: sessionCookieFrom(posted) || fresh
+  };
+}
