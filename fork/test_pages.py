@@ -68,6 +68,7 @@ def check_notifications(page) -> None:
     empty = {"title": "通知はありません", "body": "新しい通知が届くとここに表示されます。"}
 
     # read が null。既読かどうかを主張してはいけない。
+    # 既読操作の検証はデモ経路（API 無しでもローカル更新）で行う。
     render(page, "notifications", wrap({
         "heading": "通知",
         "unreadText": None,
@@ -78,7 +79,7 @@ def check_notifications(page) -> None:
             {"id": 6, "title": "未読の通知", "body": None,
              "at": None, "atISO": "2026-07-30", "read": False}
         ]
-    }))
+    }), demo=True)
     items = page.locator("#view .item")
     check(items.count() == 2, f"通知が {items.count()} 件（2 件を期待）")
     check("item--unread" not in (items.nth(0).get_attribute("class") or ""),

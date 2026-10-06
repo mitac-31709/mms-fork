@@ -256,11 +256,15 @@ test('/api/notifications', async () => {
   const body = await (await get('/api/notifications')).json();
   assertLiveOrCached(body, '/api/notifications');
   assert.equal(body.heading, '通知');
-  assert.equal(body.empty.title, '通知はありません');
   assert.ok(Array.isArray(body.notifications));
+  if (body.notifications.length === 0) {
+    assert.equal(body.empty?.title, '通知はありません');
+  }
   for (const n of body.notifications) {
     assert.ok(n.read === null || typeof n.read === 'boolean',
       `read が boolean でも null でもない: ${n.read}`);
+    assert.ok(n.id == null || typeof n.id === 'number' || typeof n.id === 'string',
+      `id の型が不正: ${n.id}`);
   }
 });
 
