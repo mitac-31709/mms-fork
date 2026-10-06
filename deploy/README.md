@@ -7,6 +7,9 @@ Meister Management System のフォークを Cloudflare Workers（静的資産�
 - Worker 名: `mms-fork`
 - アカウント: `Mitac31709@gmail.com's Account`（`ca0ec10c7f6f85ea5700ca86e63e580d`）
 
+旧 Worker 名 `meister-reports-fork` は `deploy/redirect/` の最小 Worker として残し、
+全リクエストを上記 URL へ 301 リダイレクトする（パス・クエリ維持）。
+
 **認証は利用者ごと。** 誰でも自分の元アプリのアカウントでログインできる。
 Worker は資格情報を保存しない。共有の資格情報も持たない。
 
