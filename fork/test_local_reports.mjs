@@ -5,6 +5,7 @@
 
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { inflateRawSync } from 'node:zlib';
 import { test, beforeEach } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -135,6 +136,74 @@ test('documentToWorkbookArray が xlsx バイナリを返す', async () => {
   assert.ok(arr.byteLength > 1000 || arr.length > 1000);
   const wb = XLSX.read(arr, { type: 'array' });
   assert.ok(wb.SheetNames.includes('テンプレート'));
+});
+
+/** テンプレート xlsx のローカルヘッダを展開する（書式比較用）。 */
+function unzipXlsx(buf) {
+  const u8 = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+  const out = new Map();
+  let off = 0;
+  const u16 = (o) => u8[o] | (u8[o + 1] << 8);
+  const u32 = (o) => (u8[o] | (u8[o + 1] << 8) | (u8[o + 2] << 16) | (u8[o + 3] << 24)) >>> 0;
+  while (off + 30 <= u8.length && u32(off) === 0x04034b50) {
+    const method = u16(off + 8);
+    const csize = u32(off + 18);
+    const nlen = u16(off + 26);
+    const elen = u16(off + 28);
+    const name = new TextDecoder().decode(u8.subarray(off + 30, off + 30 + nlen));
+    const start = off + 30 + nlen + elen;
+    const compressed = u8.subarray(start, start + csize);
+    const raw = method === 0 ? compressed : inflateRawSync(compressed);
+    out.set(name, Buffer.from(raw));
+    off = start + csize;
+  }
+  return out;
+}
+
+test('空の書き出しはテンプレートそのもの', async () => {
+  const blank = await documentToWorkbookArray(createLocalReport({ meta: {} }));
+  assert.ok(Buffer.from(blank).equals(templateBuf));
+});
+
+test('書き出しはテンプレートの書式・ふりがな・列幅を残す', async () => {
+  const r = createLocalReport({
+    meta: {
+      teamName: '往復チーム',
+      teamNumber: '07',
+      overview: '概要\n2行目',
+      meetingDay: '木',
+      members: ['1年 太郎']
+    },
+    weeks: [{ key: 'w01', progress: '進捗文' }]
+  });
+  const out = unzipXlsx(await documentToWorkbookArray(r));
+  const src = unzipXlsx(templateBuf);
+
+  for (const [name, bytes] of src) {
+    if (name === 'xl/worksheets/sheet1.xml' || name === 'xl/sharedStrings.xml') continue;
+    assert.ok(out.get(name)?.equals(bytes), `テンプレートと違う: ${name}`);
+  }
+
+  const sheet = out.get('xl/worksheets/sheet1.xml').toString('utf8');
+  const original = src.get('xl/worksheets/sheet1.xml').toString('utf8');
+  assert.match(sheet, /mergeCells count="106"/);
+  assert.match(sheet, /width="22\.83203125"/);
+  assert.match(sheet, /ht="44\.5"/);
+  // 進捗を書いたセルは元のスタイル番号 s="8" のまま
+  assert.match(sheet, /<c r="D15" s="8" t="s"><v>\d+<\/v><\/c>/);
+  // 空欄の欠席者は空のスタイル付きセルのまま
+  assert.match(sheet, /<c r="D14" s="13"\/>/);
+  // 触っていない見出しのふりがな定義は共有文字列に残る
+  assert.match(out.get('xl/sharedStrings.xml').toString('utf8'), /<rPh /);
+  assert.ok(original.includes('mergeCells count="106"'));
+
+  const wb = XLSX.read(await documentToWorkbookArray(r), { type: 'array' });
+  const doc = workbookToDocument(wb, { XLSX, id: r.id });
+  assert.equal(doc.meta.teamName, '往復チーム');
+  assert.equal(doc.meta.overview, '概要\n2行目');
+  assert.equal(doc.meta.members[0], '1年 太郎');
+  assert.equal(doc.weeks.find((w) => w.key === 'w01').progress, '進捗文');
+  assert.equal(doc.meta.meetingDay, '木');
 });
 
 test('チーム行のパース', () => {
