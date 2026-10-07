@@ -85,8 +85,11 @@ let currentUser = null;
 const isDemo = () => new URLSearchParams(location.search).get('demo') === '1';
 
 function viewMode() {
-  if (currentUser?.mode === 'ta') return 'ta';
-  // デモで /ta 以下を開いているときは TA ナビ
+  // ログイン／切替後の user.mode を最優先（デモの /ta URL に引っ張られない）
+  if (currentUser?.mode === 'ta' || currentUser?.mode === 'student') {
+    return currentUser.mode;
+  }
+  // 未ログインのデモで /ta 以下を直開きしたときだけ TA
   if (isDemo() && location.pathname.startsWith('/ta')) return 'ta';
   return 'student';
 }
