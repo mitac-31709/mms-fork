@@ -41,16 +41,46 @@ export const PAGE_EXPECTATIONS = {
   },
   '/reports/:id': {
     kind: 'report-detail'
+  },
+  '/ta': {
+    kind: 'dashboard',
+    heading: 'TAダッシュボード'
+  },
+  '/ta/orders': {
+    kind: 'table',
+    columns: ['商品', 'チーム', '単価', '数量', '合計', 'ステータス', '作成日時', '操作'],
+    itemsKey: 'orders'
+  },
+  '/ta/reports': {
+    kind: 'table',
+    columns: ['チーム', 'タイトル', '期間', 'ステータス', '期限'],
+    itemsKey: 'reports'
+  },
+  '/ta/teams': {
+    kind: 'list',
+    heading: 'チーム管理',
+    itemsKey: 'teams'
+  },
+  '/ta/users': {
+    kind: 'list',
+    heading: 'ユーザー一覧 (TA)',
+    itemsKey: 'users'
   }
 };
 
-/** `/reports/114` や `/reports/<uuid>/edit` を `/reports/:id` の想定に寄せる。 */
+/** `/reports/114` や `/reports/<uuid>/edit` を `/reports/:id` の想定に寄せる。
+ *  TA のクエリ付き path（`?per_page=` / `?submission_id=`）も正規化する。 */
 export function expectationPath(path) {
+  const bare = String(path || '').split('?')[0];
+  if (PAGE_EXPECTATIONS[bare]) return bare;
   if (PAGE_EXPECTATIONS[path]) return path;
-  if (/^\/reports\/(?:\d+|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\/edit)?$/i.test(path)) {
+  if (/^\/reports\/(?:\d+|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\/edit)?$/i.test(bare)) {
     return '/reports/:id';
   }
-  return path;
+  if (/^\/ta\/orders\/(?:\d+|[0-9a-f-]{36})\/details$/i.test(bare)) {
+    return '/ta/orders/:id';
+  }
+  return bare;
 }
 
 /**
