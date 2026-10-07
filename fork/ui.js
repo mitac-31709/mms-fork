@@ -90,8 +90,9 @@ export function emptyBlock({ title, body, actionLabel, onAction }) {
 /** データ表。列見出しは押せば並べ替わる。
  *  columns: [{ key, label, className }]
  *  rows:    [{ id, selected, onOpen, cells: [{ label, value, className, tone }] }]
+ *  tableClass: 表全体の補助クラス（列の多い表の `.table--auto` など）
  */
-export function dataTable({ columns, rows, sort, onSort, caption }) {
+export function dataTable({ columns, rows, sort, onSort, caption, tableClass }) {
   const headCells = columns.map((c) => {
     const th = h('th', {
       scope: 'col',
@@ -136,7 +137,7 @@ export function dataTable({ columns, rows, sort, onSort, caption }) {
     return tr;
   }));
 
-  return h('table', { class: 'table', id: 'table' },
+  return h('table', { class: ['table', tableClass].filter(Boolean).join(' '), id: 'table' },
     caption && h('caption', { class: 'sr-only', text: caption }),
     h('thead', {}, h('tr', {}, headCells)),
     body);

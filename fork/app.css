@@ -839,6 +839,10 @@ kbd {
 .table__th--status  { width: 7rem; }
 .table__th--due     { width: 9.5rem; }
 .table__th--created { width: 8rem; }
+/* 列数の多い表（TA 注文は 8 列）は内容に合わせる。
+ * fixed のままだと固定幅の合計で器が埋まり、auto の題名列が 0 幅になる。 */
+.table--auto { table-layout: auto; }
+.table--auto .table__th--title { min-width: 10rem; }
 
 .table__th {
   position: sticky;

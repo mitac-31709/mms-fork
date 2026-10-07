@@ -282,6 +282,7 @@ export function render(data, ctx) {
     if (list.length) {
       listHost.replaceChildren(dataTable({
         caption: 'TA 注文一覧。チェックで一括更新、行を開くと詳細が出ます。',
+        tableClass: 'table--auto',
         columns: [
           { key: 'product', label: '商品', className: 'table__th--title' },
           { key: '_check', label: '選択', className: 'table__th--status' },
