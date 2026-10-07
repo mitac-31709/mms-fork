@@ -80,7 +80,8 @@ test('セッション無しでは全ての取得口が 401', async () => {
   for (const path of ['/api/me', '/api/dashboard', '/api/reports', '/api/reports/1',
     '/api/orders',
     '/api/equipments', '/api/loans', '/api/notifications',
-    '/api/notifications/unread_count']) {
+    '/api/notifications/unread_count',
+    '/api/ta', '/api/ta/orders', '/api/ta/reports', '/api/ta/teams', '/api/ta/users']) {
     const res = await getNoAuth(path);
     assert.equal(res.status, 401, `${path} が ${res.status}`);
     assert.equal((await res.json()).code, 'unauthenticated', `${path} の code`);
@@ -113,6 +114,10 @@ test('/api/me は元アプリから読んだ表示名を返す', async () => {
   assert.equal(res.status, 200);
   const { user } = await res.json();
   assert.ok(user.name && user.name.trim(), `表示名が空: ${JSON.stringify(user)}`);
+  assert.ok(user.mode === 'ta' || user.mode === 'student',
+    `mode が無い: ${JSON.stringify(user)}`);
+  assert.equal(typeof user.canTa, 'boolean');
+  assert.equal(typeof user.canSwitch, 'boolean');
 });
 
 test('改竄した Cookie は 401 になり、こちらの Cookie も落とす', async () => {
@@ -126,6 +131,34 @@ const assertLiveOrCached = (body, path) => {
     `${path} の source が想定外: ${body.source}`);
   assert.ok(body.fetchedAt, `${path} に fetchedAt が無い`);
 };
+
+test('/api/ta 系は TA モードなら一覧を返す', async () => {
+  const me = await (await get('/api/me')).json();
+  if (me.user?.mode !== 'ta' && !me.user?.canTa) {
+    // 学生専用アカウントならスキップ相当（空アサーション）
+    return;
+  }
+  // いま学生ビューなら一度 TA へ
+  if (me.user?.mode !== 'ta' && me.user?.canSwitch) {
+    const switched = await get('/api/view_mode', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: 'ta' })
+    });
+    assert.equal(switched.status, 200, await switched.text());
+    const set = (switched.headers.get('set-cookie') || '').split(';')[0];
+    if (set) cookie = set;
+  }
+
+  const orders = await (await get('/api/ta/orders')).json();
+  assertLiveOrCached(orders, '/api/ta/orders');
+  assert.equal(orders.heading, '注文管理');
+  assert.ok(Array.isArray(orders.orders));
+
+  const teams = await (await get('/api/ta/teams')).json();
+  assertLiveOrCached(teams, '/api/ta/teams');
+  assert.ok(Array.isArray(teams.teams));
+});
 
 test('/api/dashboard', async () => {
   const body = await (await get('/api/dashboard')).json();
@@ -191,7 +224,47 @@ test('/api/orders は列見出し 6 つと空状態を取る', async () => {
         `${k} が数値でも null でもない: ${o[k]}`);
       assert.ok(!Number.isNaN(o[k]), `${k} が NaN`);
     }
+    assert.ok(o.id == null || typeof o.id === 'number' || typeof o.id === 'string',
+      `id の型が不正: ${o.id}`);
+    if (o.status) {
+      const known = [
+        '保留中', '注文済み', '受取可能', '受取済み', 'キャンセル済み',
+        '未完了', '完了'
+      ];
+      // 未知の語彙も素通しはするが、現行の既知語彙なら印が落ちていること
+      if (known.includes(o.status) || /保留|注文|受取|キャンセル|完了/.test(o.status)) {
+        assert.ok(!/^[⏳📋✅📦❌]/.test(o.status), `ステータスの絵文字が残っている: ${o.status}`);
+      }
+    }
   }
+});
+
+test('/api/notifications の既読化口がある', async () => {
+  const list = await (await get('/api/notifications')).json();
+  assertLiveOrCached(list, '/api/notifications');
+  assert.ok(Array.isArray(list.notifications));
+  if (!list.notifications.length) {
+    // 0 件でも一括既読は通る想定
+    const res = await get('/api/notifications/mark_all_as_read', { method: 'PATCH' });
+    assert.equal(res.status, 200, await res.clone().text());
+    const body = await res.json();
+    assert.equal(body.ok, true);
+    return;
+  }
+  const target = list.notifications.find((n) => n.id != null && n.read !== true)
+    || list.notifications.find((n) => n.id != null);
+  if (!target) {
+    assert.ok(true, '既読化できる通知が無い');
+    return;
+  }
+  const res = await get(
+    `/api/notifications/${encodeURIComponent(target.id)}/mark_as_read`,
+    { method: 'PATCH' }
+  );
+  assert.equal(res.status, 200, await res.clone().text());
+  const body = await res.json();
+  assert.equal(body.ok, true);
+  assert.equal(String(body.id), String(target.id));
 });
 
 test('/api/equipments', async () => {
@@ -216,11 +289,15 @@ test('/api/notifications', async () => {
   const body = await (await get('/api/notifications')).json();
   assertLiveOrCached(body, '/api/notifications');
   assert.equal(body.heading, '通知');
-  assert.equal(body.empty.title, '通知はありません');
   assert.ok(Array.isArray(body.notifications));
+  if (body.notifications.length === 0) {
+    assert.equal(body.empty?.title, '通知はありません');
+  }
   for (const n of body.notifications) {
     assert.ok(n.read === null || typeof n.read === 'boolean',
       `read が boolean でも null でもない: ${n.read}`);
+    assert.ok(n.id == null || typeof n.id === 'number' || typeof n.id === 'string',
+      `id の型が不正: ${n.id}`);
   }
 });
 

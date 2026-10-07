@@ -7,6 +7,10 @@
  *  1. 期限が無いので、既定の並びは作成日の新しい順。
  *  2. 詳細は読み取りだけ。削除も編集も置かない。
  *  3. 「新しい注文」はこのパネルで作る。実データは Worker 経由で元アプリへ POST。
+ *
+ * ステータス語彙は元アプリの現行どおり:
+ *  保留中 / 注文済み / 受取可能 / 受取済み / キャンセル済み
+ * （以前の 未完了 / 完了 も読み取り用に残す）。
  */
 
 import { api } from '../api.js';
@@ -15,6 +19,12 @@ import { fmtDate, fmtYen } from '../format.js';
 import { dataTable, emptyBlock, h, metaList, panel, statusPill, toasts } from '../ui.js';
 
 export const meta = { route: '/orders', nav: '注文', title: '注文' };
+
+/** 元アプリの status フィルタ（TA 画面の select）と同じ並び。 */
+const ORDER_STATUSES = ['保留中', '注文済み', '受取可能', '受取済み', 'キャンセル済み'];
+/** 旧語彙。まだ残っているデータやデモ互換用。 */
+const LEGACY_STATUSES = ['未完了', '完了'];
+const ALL_FILTER_STATUSES = [...ORDER_STATUSES, ...LEGACY_STATUSES];
 
 const SORT_KEYS = [
   'product', 'unitPriceValue', 'quantityValue', 'totalValue', 'status', 'createdAt'
@@ -31,6 +41,23 @@ const SALES_SITES = [
 
 const numeric = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 
+function sameId(a, b) {
+  if (a == null || b == null) return false;
+  return String(a) === String(b);
+}
+
+function parseOrderQueryId(raw) {
+  if (!raw) return null;
+  if (/^\d+$/.test(raw)) {
+    const n = Number(raw);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(raw)) {
+    return raw.toLowerCase();
+  }
+  return null;
+}
+
 export async function load(ctx, opts = {}) {
   return ctx.demo ? demoOrders(opts) : api.orders(opts);
 }
@@ -39,7 +66,7 @@ export function render(data, ctx) {
   const rows = (data.orders || []).map(normalize);
   const emptyText = data.empty || { title: '注文がありません', body: '' };
   // デモで追加した行の次の id。実データでは使わない。
-  let nextDemoId = Math.max(0, ...rows.map((o) => o.id || 0)) + 1;
+  let nextDemoId = Math.max(0, ...rows.map((o) => (typeof o.id === 'number' ? o.id : 0))) + 1;
 
   readUrl();
 
@@ -107,7 +134,7 @@ export function render(data, ctx) {
       .sort((a, b) => {
         const x = sortValue(a);
         const y = sortValue(b);
-        if (x === y) return (a.id ?? 0) - (b.id ?? 0);
+        if (x === y) return String(a.id ?? '').localeCompare(String(b.id ?? ''));
         // 値が取れなかった行は向きによらず末尾に置く。先頭に来ると読み始めが空になる。
         if (x == null) return 1;
         if (y == null) return -1;
@@ -121,12 +148,11 @@ export function render(data, ctx) {
     const p = new URLSearchParams(location.search);
     state.q = p.get('q') || '';
     const status = p.get('status');
-    state.status = status === '未完了' || status === '完了' ? status : 'all';
+    state.status = ALL_FILTER_STATUSES.includes(status) ? status : 'all';
     const key = p.get('sort_by');
     if (SORT_KEYS.includes(key)) state.sortKey = key;
     state.sortDir = p.get('sort_direction') === 'asc' ? 'asc' : 'desc';
-    const id = Number(p.get('order_id'));
-    state.selectedId = Number.isFinite(id) && id > 0 ? id : null;
+    state.selectedId = parseOrderQueryId(p.get('order_id'));
   }
 
   function syncUrl() {
@@ -135,7 +161,7 @@ export function render(data, ctx) {
     if (state.status !== 'all') p.set('status', state.status);
     p.set('sort_by', state.sortKey);
     p.set('sort_direction', state.sortDir);
-    if (state.selectedId) p.set('order_id', state.selectedId);
+    if (state.selectedId != null) p.set('order_id', state.selectedId);
     if (ctx.demo) p.set('demo', '1');
     history.replaceState(null, '', `${location.pathname}?${p}`);
   }
@@ -149,19 +175,26 @@ export function render(data, ctx) {
       oninput: (e) => { state.q = e.target.value; paint(); syncUrl(); }
     });
 
-    const segments = [['all', 'すべて'], ['未完了', '未完了'], ['完了', '完了']]
-      .map(([value, label]) => h('label', { class: 'segmented__option' },
-        h('input', {
-          type: 'radio', name: 'status', value,
-          checked: state.status === value,
-          onchange: (e) => {
-            if (!e.target.checked) return;
-            state.status = value;
-            paint();
-            syncUrl();
-          }
-        }),
-        h('span', {}, label)));
+    // ステータスは 5 値あるので、週報の 2 値セグメントではなく select にする
+    // （元アプリの TA 画面と同じ語彙・同じ操作感）。
+    const statusSelect = h('select', {
+      class: 'input select', id: 'status', name: 'status',
+      onchange: (e) => {
+        state.status = e.target.value || 'all';
+        paint();
+        syncUrl();
+      }
+    },
+      h('option', { value: 'all', selected: state.status === 'all' || null, text: 'すべて' }),
+      ORDER_STATUSES.map((s) => h('option', {
+        value: s, selected: state.status === s || null, text: s
+      })),
+      // 一覧に旧語彙が残っているときだけ選択肢に出す
+      LEGACY_STATUSES
+        .filter((s) => rows.some((o) => o.status === s) || state.status === s)
+        .map((s) => h('option', {
+          value: s, selected: state.status === s || null, text: s
+        })));
 
     const sortSelect = h('select', {
       class: 'input select', id: 'sort', name: 'sort',
@@ -185,9 +218,9 @@ export function render(data, ctx) {
         h('label', { class: 'field__label', for: 'q', text: '商品名で絞り込み' }),
         search,
         h('p', { class: 'field__hint', id: 'q-hint' }, h('kbd', { text: '/' }), ' で移動')),
-      h('fieldset', { class: 'field field--status' },
-        h('legend', { class: 'field__label', text: 'ステータス' }),
-        h('div', { class: 'segmented' }, segments),
+      h('div', { class: 'field field--status' },
+        h('label', { class: 'field__label', for: 'status', text: 'ステータス' }),
+        h('span', { class: 'select-wrap' }, statusSelect),
         h('p', { class: 'field__hint', 'aria-hidden': 'true' }, '\u00a0')),
       h('div', { class: 'field field--sort' },
         h('label', { class: 'field__label', for: 'sort', text: '並べ替え' }),
@@ -223,7 +256,7 @@ export function render(data, ctx) {
         rows: list.map((o) => ({
           id: o.id,
           idPrefix: 'order',        // 元 UI の行 ID 規約を保つ
-          selected: o.id === state.selectedId,
+          selected: sameId(o.id, state.selectedId),
           onOpen: (id) => openDetail(id),
           cells: [
             { label: '商品', value: o.product },
@@ -252,15 +285,19 @@ export function render(data, ctx) {
       ? `${list.length} / ${rows.length} 件`
       : `${rows.length} 件`;
 
-    const counts = {
-      未完了: rows.filter((o) => o.status === '未完了').length,
-      完了: rows.filter((o) => o.status === '完了').length,
-      合計: rows.length
-    };
+    // 集計は元アプリに出ている語彙を優先。0 件の語彙は出さない。
+    const present = ORDER_STATUSES
+      .map((label) => [label, rows.filter((o) => o.status === label).length])
+      .filter(([, n]) => n > 0);
+    if (!present.length) {
+      for (const label of LEGACY_STATUSES) {
+        const n = rows.filter((o) => o.status === label).length;
+        if (n) present.push([label, n]);
+      }
+    }
     summary.replaceChildren(...[
-      ['未完了', counts.未完了, ''],
-      ['完了', counts.完了, ''],
-      ['合計', counts.合計, 'summary__item--total']
+      ...present.map(([label, value]) => [label, value, '']),
+      ['合計', rows.length, 'summary__item--total']
     ].map(([label, value, extra]) => h('div', { class: `summary__item ${extra}`.trim() },
       h('dt', { class: 'summary__label', text: label }),
       h('dd', { class: 'summary__value', text: String(value) }))));
@@ -271,8 +308,8 @@ export function render(data, ctx) {
     state.status = 'all';
     const input = listHost.parentElement?.querySelector('#q');
     if (input) input.value = '';
-    listHost.parentElement?.querySelectorAll('input[name="status"]')
-      .forEach((r) => { r.checked = r.value === 'all'; });
+    const statusEl = listHost.parentElement?.querySelector('#status');
+    if (statusEl) statusEl.value = 'all';
     paint();
     syncUrl();
     input?.focus();
@@ -296,7 +333,7 @@ export function render(data, ctx) {
 
   // ── 詳細パネル。元アプリに書き込み口が無いので読むだけ ──
   function openDetail(id, { focus = true } = {}) {
-    const o = rows.find((x) => x.id === id);
+    const o = rows.find((x) => sameId(x.id, id));
     if (!o) return;
 
     state.selectedId = id;
@@ -325,7 +362,8 @@ export function render(data, ctx) {
         paint();
         syncUrl();
         // フォーカスを呼び出した行へ返す
-        return listHost.querySelector(`#order_${id} .row__open`);
+        return listHost.querySelector(`#order_${CSS.escape(String(id))} .row__open`)
+          || listHost.querySelector(`#order_${id} .row__open`);
       }
     });
 
@@ -509,7 +547,7 @@ export function render(data, ctx) {
           unitPrice: `¥${fields.amount.toLocaleString('ja-JP')}`,
           quantity: String(fields.quantity),
           total: `¥${(fields.amount * fields.quantity).toLocaleString('ja-JP')}`,
-          status: '未完了',
+          status: '保留中',
           createdAt: fmtDate(new Date().toISOString().slice(0, 10)),
           createdAtISO: new Date().toISOString().slice(0, 10),
           unitPriceValue: fields.amount,

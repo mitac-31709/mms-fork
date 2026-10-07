@@ -47,6 +47,13 @@ export const api = {
   }),
   logout: () => request('/api/session', { method: 'DELETE' }),
 
+  /** TA / 学生ビュー切替。成功すると user.mode が返る。 */
+  switchViewMode: (mode) => request('/api/view_mode', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode })
+  }),
+
   dashboard: (opts) => request('/api/dashboard', opts),
   reports: (opts) => request('/api/reports', opts),
   report: (id, opts) => request(`/api/reports/${encodeURIComponent(id)}`, opts),
@@ -61,6 +68,35 @@ export const api = {
   loans: (opts) => request('/api/loans', opts),
   notifications: (opts) => request('/api/notifications', opts),
   unreadCount: (opts) => request('/api/notifications/unread_count', opts),
+  /** 1 件を既読にする。Worker が元アプリの mark_as_read を中継する。 */
+  markNotificationRead: (id) => request(
+    `/api/notifications/${encodeURIComponent(id)}/mark_as_read`,
+    { method: 'PATCH' }
+  ),
+  /** すべて既読。 */
+  markAllNotificationsRead: () => request('/api/notifications/mark_all_as_read', {
+    method: 'PATCH'
+  }),
+
+  // ── TA ──────────────────────────────────────────
+  taDashboard: (opts) => request('/api/ta', opts),
+  taOrders: (opts) => request('/api/ta/orders', opts),
+  taOrder: (id, opts) => request(`/api/ta/orders/${encodeURIComponent(id)}`, opts),
+  taBulkAvailable: (orderIds) => request('/api/ta/orders/bulk_update_status', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ orderIds, status: 'available' })
+  }),
+  taReports: (opts = {}) => {
+    const refresh = Boolean(opts.refresh);
+    const submissionId = opts.submissionId || opts.submission_id || null;
+    const u = new URL('/api/ta/reports', location.origin);
+    if (submissionId) u.searchParams.set('submission_id', submissionId);
+    if (refresh) u.searchParams.set('refresh', '1');
+    return request(u.pathname + u.search);
+  },
+  taTeams: (opts) => request('/api/ta/teams', opts),
+  taUsers: (opts) => request('/api/ta/users', opts),
 
   /** Discord Incoming Webhook へ Worker 経由で送る。即時中継（URL は残さない）。 */
   notifyDiscord: (webhookUrl, payload) => request('/api/notify/discord', {

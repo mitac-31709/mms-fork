@@ -68,6 +68,7 @@ def check_notifications(page) -> None:
     empty = {"title": "通知はありません", "body": "新しい通知が届くとここに表示されます。"}
 
     # read が null。既読かどうかを主張してはいけない。
+    # 既読操作の検証はデモ経路（API 無しでもローカル更新）で行う。
     render(page, "notifications", wrap({
         "heading": "通知",
         "unreadText": None,
@@ -78,7 +79,7 @@ def check_notifications(page) -> None:
             {"id": 6, "title": "未読の通知", "body": None,
              "at": None, "atISO": "2026-07-30", "read": False}
         ]
-    }))
+    }), demo=True)
     items = page.locator("#view .item")
     check(items.count() == 2, f"通知が {items.count()} 件（2 件を期待）")
     check("item--unread" not in (items.nth(0).get_attribute("class") or ""),
@@ -96,8 +97,20 @@ def check_notifications(page) -> None:
     page.wait_for_selector("#panel:not([hidden])", timeout=5000)
     panel = page.inner_text("#panel-body")
     check("—" in panel, f"read が null なのに状態を断定している: {panel!r}")
+    # id があり未既読確定でないなら「既読にする」を出せる
+    check(page.locator("#panel-mark-read").count() == 1,
+          "既読ボタンがパネルに無い")
     page.keyboard.press("Escape")
     page.wait_for_selector("#panel", state="hidden", timeout=5000)
+
+    # 未読を開いて既読にする（デモ）
+    items.nth(1).click()
+    page.wait_for_selector("#panel:not([hidden])", timeout=5000)
+    page.locator("#panel-mark-read").click()
+    page.wait_for_selector("#panel", state="hidden", timeout=5000)
+    check("item--unread" not in (page.locator("#view .item").nth(1).get_attribute("class") or ""),
+          "既読にしたあとも未読の印が残っている")
+    check(page.locator("#mark-all-read").count() == 1, "すべて既読ボタンが無い")
 
     # 0 件
     render(page, "notifications", wrap({
@@ -106,6 +119,7 @@ def check_notifications(page) -> None:
     check(page.locator("#view .empty").count() == 1, "通知の空状態が出ない")
     check(page.inner_text("#view .empty__title") == empty["title"], "空状態の見出しが違う")
     check(page.inner_text("#view .empty__body") == empty["body"], "空状態の本文が違う")
+    check(page.locator("#mark-all-read").count() == 0, "0 件なのにすべて既読が出ている")
     check(page.locator("#notify-settings").count() == 1, "届け先セクションが出ない")
     check("届け先" in page.inner_text("#notify-settings"), "届け先の見出しが無い")
     # 初回（intro 未記録）は開いて機能を見せる
@@ -137,7 +151,7 @@ def check_notifications(page) -> None:
     page.locator("#notify-settings-toggle").click()
     check(page.locator("#notify-settings-panel").is_visible(),
           "設定するを押しても届け先フォームが開かない")
-    print("  通知: read=null / unreadText=null / at=null / 0 件 / 届け先初回のみオープン")
+    print("  通知: read=null / 既読化 / unreadText=null / at=null / 0 件 / 届け先初回のみオープン")
 
 
 # ── 機材 ───────────────────────────────────────────
@@ -191,12 +205,13 @@ def check_orders(page) -> None:
     render(page, "orders", wrap({
         "columns": columns, "empty": empty,
         "orders": [
-            {"id": 1, "product": "見積の品", "unitPrice": "お問い合わせください",
-             "quantity": "—", "total": "—", "status": "未完了",
+            {"id": "3ef519cc-d396-47e9-bd62-51d8e095562e",
+             "product": "見積の品", "unitPrice": "お問い合わせください",
+             "quantity": "—", "total": "—", "status": "保留中",
              "createdAt": "2026/08/01", "createdAtISO": "2026-08-01",
              "unitPriceValue": None, "quantityValue": None, "totalValue": None},
             {"id": 2, "product": "無償提供", "unitPrice": "¥0", "quantity": "1",
-             "total": "¥0", "status": "完了", "createdAt": "2026/07/30",
+             "total": "¥0", "status": "受取済み", "createdAt": "2026/07/30",
              "createdAtISO": "2026-07-30",
              "unitPriceValue": 0, "quantityValue": 1, "totalValue": 0}
         ]
@@ -210,11 +225,16 @@ def check_orders(page) -> None:
     # 0 は正当な値。null と混同して落としてはいけない。
     check("¥0" in rows.nth(1).inner_text(),
           f"0 円を出せていない: {rows.nth(1).inner_text()!r}")
+    check("status--pending" in (rows.nth(0).locator(".status").get_attribute("class") or ""),
+          "保留中に色付きステータスが付いていない")
+    check("status--received" in (rows.nth(1).locator(".status").get_attribute("class") or ""),
+          "受取済みに色付きステータスが付いていない")
+    check(page.locator("#status").count() == 1, "ステータスの select が無い")
 
     render(page, "orders", wrap({"columns": columns, "empty": empty, "orders": []}))
     check(page.locator("#view .empty").count() == 1, "注文の空状態が出ない")
     check(page.inner_text("#view .empty__title") == empty["title"], "空状態の見出しが違う")
-    print("  注文: 金額が読めない行 / 0 円 / 0 件")
+    print("  注文: 金額が読めない行 / 0 円 / UUID / 色付きステータス / 0 件")
 
 
 # ── 貸出 ───────────────────────────────────────────
@@ -284,8 +304,9 @@ def check_dashboard(page) -> None:
     check("未読の通知" in view, "未読件数がホームに無い")
     check(page.locator("#view .board__tally-value").nth(0).inner_text() == "1",
           "週報未完了の件数が 1 ではない")
-    # 注文が 0 件なら「未完了の注文」の節は出さない（0 件の嘘のリストを作らない）
-    check("未完了の注文" not in view, "注文 0 件なのに未完了の注文リストを出している")
+    # 注文が 0 件なら「進行中の注文」の節は出さない（0 件の嘘のリストを作らない）
+    check("進行中の注文" not in view, "注文 0 件なのに進行中の注文リストを出している")
+    check("未完了の注文" not in view, "注文 0 件なのに旧「未完了の注文」リストを出している")
     page.set_viewport_size({"width": 320, "height": 900})
     overflow = page.evaluate(
         "() => document.documentElement.scrollWidth - document.documentElement.clientWidth")

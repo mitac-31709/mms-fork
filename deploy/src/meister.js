@@ -10,6 +10,7 @@
 import {
   authenticityToken, csrfToken, looksLikeSignIn, parseIdToken, parseReportFields
 } from './parse.js';
+import { parseUserWithMode } from './parse-ta.js';
 
 export const ORIGIN = 'https://meister.tokyo-ct.org';
 const UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
@@ -467,4 +468,238 @@ export async function saveReportField(cookie, id, fieldName, content) {
     throw new ApiError(422, errors[0] || '週報を保存できませんでした', { details: errors });
   }
   throw new ApiError(502, `元アプリの週報更新が ${posted.status} を返しました`);
+}
+
+/** 通知ページから CSRF を取り、既読 API を叩くときの共通前段。 */
+async function notificationCsrf(cookie) {
+  const page = await origin('/notifications', { headers: { Accept: 'text/html' } }, cookie);
+  const pageHtml = await page.text();
+  if (page.status !== 200 || looksLikeSignIn(pageHtml)) {
+    throw new ApiError(401, 'ログインの有効期限が切れました。もう一度ログインしてください。',
+      { clearSession: true });
+  }
+  const token = csrfToken(pageHtml);
+  if (!token) throw new ApiError(502, '通知画面の CSRF トークンが見つかりません');
+  return { token, cookie: sessionCookieFrom(page) || cookie };
+}
+
+/**
+ * 1 件を既読にする。元アプリの `PATCH /notifications/:id/mark_as_read`
+ * （`notification_list_controller` / `notifications.js` と同じ口）。
+ */
+export async function markNotificationRead(cookie, id) {
+  const nid = parseIdToken(id);
+  if (nid == null) throw new ApiError(400, '通知の id が不正です');
+
+  const { token, cookie: fresh } = await notificationCsrf(cookie);
+  const posted = await origin(`/notifications/${nid}/mark_as_read`, {
+    method: 'PATCH',
+    body: '{}',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'text/vnd.turbo-stream.html, application/json, */*',
+      'X-CSRF-Token': token,
+      'X-Requested-With': 'XMLHttpRequest',
+      Origin: ORIGIN,
+      Referer: `${ORIGIN}/notifications`
+    }
+  }, fresh);
+
+  const body = await posted.text();
+  if (posted.status === 401 || looksLikeSignIn(body)) {
+    throw new ApiError(401, 'ログインの有効期限が切れました。もう一度ログインしてください。',
+      { clearSession: true });
+  }
+  if (posted.status === 404) {
+    throw new ApiError(404, 'その通知は見つかりません');
+  }
+  if (posted.status < 200 || posted.status >= 300) {
+    throw new ApiError(502, `元アプリの既読化が ${posted.status} を返しました`);
+  }
+  return {
+    ok: true,
+    id: nid,
+    cookie: sessionCookieFrom(posted) || fresh
+  };
+}
+
+/**
+ * すべて既読。元アプリの `PATCH /notifications/mark_all_as_read`。
+ */
+export async function markAllNotificationsRead(cookie) {
+  const { token, cookie: fresh } = await notificationCsrf(cookie);
+  const posted = await origin('/notifications/mark_all_as_read', {
+    method: 'PATCH',
+    body: '{}',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'text/vnd.turbo-stream.html, application/json, */*',
+      'X-Requested-With': 'XMLHttpRequest',
+      'X-CSRF-Token': token,
+      Origin: ORIGIN,
+      Referer: `${ORIGIN}/notifications`
+    }
+  }, fresh);
+
+  const body = await posted.text();
+  if (posted.status === 401 || looksLikeSignIn(body)) {
+    throw new ApiError(401, 'ログインの有効期限が切れました。もう一度ログインしてください。',
+      { clearSession: true });
+  }
+  if (posted.status < 200 || posted.status >= 300) {
+    throw new ApiError(502, `元アプリの一括既読が ${posted.status} を返しました`);
+  }
+  return {
+    ok: true,
+    cookie: sessionCookieFrom(posted) || fresh
+  };
+}
+
+/** `/view_mode/switch` 用フォームから、指定 mode の authenticity_token を取る。 */
+function viewModeToken(html, mode) {
+  const formRe = /<form\b[^>]*>[\s\S]*?<\/form>/gi;
+  let m;
+  while ((m = formRe.exec(String(html || '')))) {
+    const form = m[0];
+    if (!/action="\/view_mode\/switch"/.test(form)) continue;
+    if (!new RegExp(`name="mode"[^>]*value="${mode}"|value="${mode}"[^>]*name="mode"`).test(form)) {
+      continue;
+    }
+    const token = form.match(/name="authenticity_token"[^>]*value="([^"]+)"/i)
+      || form.match(/value="([^"]+)"[^>]*name="authenticity_token"/i);
+    if (token) return token[1];
+  }
+  return null;
+}
+
+/**
+ * TA / 学生ビューを切り替える。元アプリの `POST /view_mode/switch`。
+ * 成功後の Cookie と利用者情報（mode 付き）を返す。
+ */
+export async function switchViewMode(cookie, mode) {
+  if (mode !== 'ta' && mode !== 'student') {
+    throw new ApiError(400, 'mode は ta か student を指定してください');
+  }
+
+  // どちらの画面でもスイッチフォームがある。TA 画面を優先。
+  let formPage = await origin('/ta', { headers: { Accept: 'text/html' } }, cookie);
+  let formHtml = await formPage.text();
+  if (formPage.status !== 200 || looksLikeSignIn(formHtml)
+    || !/action="\/view_mode\/switch"/.test(formHtml)) {
+    formPage = await origin('/dashboard', { headers: { Accept: 'text/html' } }, cookie);
+    formHtml = await formPage.text();
+  }
+  if (formPage.status !== 200 || looksLikeSignIn(formHtml)) {
+    throw new ApiError(401, 'ログインの有効期限が切れました。もう一度ログインしてください。',
+      { clearSession: true });
+  }
+
+  const token = viewModeToken(formHtml, mode);
+  if (!token) {
+    throw new ApiError(403, 'このアカウントではビュー切替が使えません');
+  }
+  const fresh = sessionCookieFrom(formPage) || cookie;
+
+  const posted = await origin('/view_mode/switch', {
+    method: 'POST',
+    body: new URLSearchParams({
+      authenticity_token: token,
+      mode
+    }).toString(),
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      Accept: 'text/html',
+      Origin: ORIGIN,
+      Referer: `${ORIGIN}/ta`
+    }
+  }, fresh);
+
+  if (posted.status === 401) {
+    throw new ApiError(401, 'ログインの有効期限が切れました。もう一度ログインしてください。',
+      { clearSession: true });
+  }
+
+  const nextCookie = sessionCookieFrom(posted) || fresh;
+  // 切替後のモードを確認する
+  const probePath = mode === 'ta' ? '/ta' : '/dashboard';
+  const probe = await html(nextCookie, probePath);
+  const user = parseUserWithMode(probe);
+  return {
+    ok: true,
+    cookie: nextCookie,
+    user
+  };
+}
+
+/**
+ * TA の一括ステータス更新。元アプリは `available`（受取可能）のみ許可。
+ * `PATCH /ta/orders/bulk_update_status`（form POST + _method=PATCH）。
+ */
+export async function bulkUpdateTaOrderStatus(cookie, orderIds, status = 'available') {
+  if (status !== 'available') {
+    throw new ApiError(400, 'TA は受取可能への変更のみできます');
+  }
+  const ids = (Array.isArray(orderIds) ? orderIds : [])
+    .map((id) => parseIdToken(id))
+    .filter((id) => id != null);
+  if (!ids.length) throw new ApiError(400, '注文を選んでください');
+
+  const formPage = await origin('/ta/orders?per_page=100', {
+    headers: { Accept: 'text/html' }
+  }, cookie);
+  const formHtml = await formPage.text();
+  if (formPage.status !== 200 || looksLikeSignIn(formHtml)) {
+    throw new ApiError(401, 'ログインの有効期限が切れました。もう一度ログインしてください。',
+      { clearSession: true });
+  }
+  const token = csrfToken(formHtml);
+  if (!token) throw new ApiError(502, '注文画面の CSRF トークンが見つかりません');
+  const fresh = sessionCookieFrom(formPage) || cookie;
+
+  const formData = new URLSearchParams();
+  formData.set('authenticity_token', token);
+  formData.set('_method', 'PATCH');
+  formData.set('status', status);
+  for (const id of ids) formData.append('order_ids[]', String(id));
+
+  const posted = await origin('/ta/orders/bulk_update_status', {
+    method: 'POST',
+    body: formData.toString(),
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      Accept: 'text/vnd.turbo-stream.html, text/html, */*',
+      'X-CSRF-Token': token,
+      'X-Requested-With': 'XMLHttpRequest',
+      Origin: ORIGIN,
+      Referer: `${ORIGIN}/ta/orders`
+    }
+  }, fresh);
+
+  const body = await posted.text();
+  if (posted.status === 401 || looksLikeSignIn(body)) {
+    throw new ApiError(401, 'ログインの有効期限が切れました。もう一度ログインしてください。',
+      { clearSession: true });
+  }
+  if (posted.status < 200 || posted.status >= 300) {
+    throw new ApiError(502, `元アプリの一括更新が ${posted.status} を返しました`);
+  }
+  return {
+    ok: true,
+    status,
+    orderIds: ids,
+    cookie: sessionCookieFrom(posted) || fresh
+  };
+}
+
+/** ログイン直後などに、/ta か /dashboard から利用者＋モードを取る。 */
+export async function fetchUserProfile(cookie) {
+  try {
+    const body = await html(cookie, '/ta');
+    const user = parseUserWithMode(body);
+    if (user?.mode === 'ta' || user?.canTa || user?.canSwitch) return user;
+  } catch {
+    // TA 画面が無いアカウントはダッシュボードへ
+  }
+  const body = await html(cookie, '/dashboard');
+  return parseUserWithMode(body);
 }

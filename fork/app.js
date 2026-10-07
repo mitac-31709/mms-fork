@@ -12,7 +12,8 @@
 
 import { Unauthenticated, api } from './api.js';
 import {
-  DEMO_FRESH_MS, DEMO_USER, demoNotifications, demoUnreadCount, resetDemoCache
+  DEMO_FRESH_MS, DEMO_TA_USER, DEMO_USER, demoNotifications, demoUnreadCount,
+  resetDemoCache
 } from './demo.js';
 import { fmtTime } from './format.js';
 import {
@@ -21,7 +22,7 @@ import {
 import {
   contentChanged, forget, forgetAll, reachableRoutes, recall, remember
 } from './page-store.js';
-import { h, panel, wirePanel } from './ui.js';
+import { h, panel, toasts, wirePanel } from './ui.js';
 
 import * as dashboard from './pages/dashboard.js';
 import * as orders from './pages/orders.js';
@@ -29,11 +30,33 @@ import * as equipments from './pages/equipments.js';
 import * as loans from './pages/loans.js';
 import * as reports from './pages/reports.js';
 import * as notifications from './pages/notifications.js';
+import * as taDashboard from './pages/ta-dashboard.js';
+import * as taOrders from './pages/ta-orders.js';
+import * as taReports from './pages/ta-reports.js';
+import * as taTeams from './pages/ta-teams.js';
+import * as taUsers from './pages/ta-users.js';
 
-const PAGES = [dashboard, orders, equipments, loans, reports, notifications];
+const STUDENT_PAGES = [dashboard, orders, equipments, loans, reports, notifications];
+const TA_PAGES = [taDashboard, taOrders, taReports, taTeams, taUsers];
+const PAGES = [...STUDENT_PAGES, ...TA_PAGES];
 const BY_ROUTE = new Map(PAGES.map((p) => [p.meta.route, p]));
-const ALL_ROUTES = PAGES.map((p) => p.meta.route);
-const DEFAULT_ROUTE = '/dashboard';
+const STUDENT_ROUTES = STUDENT_PAGES.map((p) => p.meta.route);
+const TA_ROUTES = TA_PAGES.map((p) => p.meta.route);
+
+const STUDENT_NAV = [
+  ['/dashboard', 'ダッシュボード'],
+  ['/orders', '注文'],
+  ['/equipments', '機材'],
+  ['/loans', '貸出'],
+  ['/reports', '週報']
+];
+const TA_NAV = [
+  ['/ta', 'TAホーム'],
+  ['/ta/orders', '注文'],
+  ['/ta/reports', '週報'],
+  ['/ta/teams', 'チーム'],
+  ['/ta/users', 'ユーザー']
+];
 
 const el = {
   signin: document.getElementById('signin'),
@@ -50,14 +73,38 @@ const el = {
   userMeta: document.getElementById('user-meta'),
   logout: document.getElementById('logout'),
   navToggle: document.getElementById('nav-toggle'),
-  nav: document.getElementById('rail-nav')
+  nav: document.getElementById('rail-nav'),
+  railList: document.getElementById('rail-list'),
+  modeSwitch: document.getElementById('mode-switch')
 };
+
+/** いまのビューモード（学生 / TA）。ログイン応答と切替で更新する。 */
+let currentUser = null;
 
 /** デモモードかどうかは URL で決める。以後の画面遷移でも維持する。 */
 const isDemo = () => new URLSearchParams(location.search).get('demo') === '1';
 
+function viewMode() {
+  // ログイン／切替後の user.mode を最優先（デモの /ta URL に引っ張られない）
+  if (currentUser?.mode === 'ta' || currentUser?.mode === 'student') {
+    return currentUser.mode;
+  }
+  // 未ログインのデモで /ta 以下を直開きしたときだけ TA
+  if (isDemo() && location.pathname.startsWith('/ta')) return 'ta';
+  return 'student';
+}
+
+function defaultRoute() {
+  return viewMode() === 'ta' ? '/ta' : '/dashboard';
+}
+
+function routesForMode(mode = viewMode()) {
+  return mode === 'ta' ? TA_ROUTES : STUDENT_ROUTES;
+}
+
 const ctx = {
   get demo() { return isDemo(); },
+  get user() { return currentUser; },
   today: new Date(),
   navigate,
   reload: () => render(currentRoute()),
@@ -116,8 +163,9 @@ function paint(route, data) {
 
 // ── ルーティング ────────────────────────────────────
 function currentRoute() {
-  const path = location.pathname.replace(/\/+$/, '') || DEFAULT_ROUTE;
-  return BY_ROUTE.has(path) ? path : DEFAULT_ROUTE;
+  const path = location.pathname.replace(/\/+$/, '') || defaultRoute();
+  if (BY_ROUTE.has(path)) return path;
+  return defaultRoute();
 }
 
 function keepQuery(path) {
@@ -126,6 +174,28 @@ function keepQuery(path) {
     next.searchParams.set('demo', '1');
   }
   return `${next.pathname}${next.search}`;
+}
+
+function rebuildNav() {
+  if (!el.railList) return;
+  const mode = viewMode();
+  const items = mode === 'ta' ? TA_NAV : STUDENT_NAV;
+  el.railList.replaceChildren(...items.map(([route, label]) => h('li', {},
+    h('a', { class: 'rail__link', href: route, 'data-route': route, text: label }))));
+
+  if (el.modeSwitch) {
+    const can = Boolean(currentUser?.canSwitch || currentUser?.canTa || isDemo());
+    el.modeSwitch.hidden = !can;
+    el.modeSwitch.textContent = mode === 'ta' ? '学生ビューへ' : 'TAビューへ';
+    el.modeSwitch.dataset.mode = mode === 'ta' ? 'student' : 'ta';
+  }
+
+  const wordmark = document.querySelector('.wordmark');
+  if (wordmark) {
+    const home = defaultRoute();
+    wordmark.setAttribute('href', home);
+    wordmark.dataset.route = home;
+  }
 }
 
 function navigate(path, { replace = false } = {}) {
@@ -241,7 +311,7 @@ async function liveRefresh(route, token) {
 /** レールから行ける他画面を先に温める（メモリ + Worker キャッシュ）。 */
 function prefetchReachable(fromRoute) {
   const gen = ++prefetchGen;
-  const routes = reachableRoutes(ALL_ROUTES, fromRoute);
+  const routes = reachableRoutes(routesForMode(), fromRoute);
 
   const run = async () => {
     for (const route of routes) {
@@ -292,11 +362,41 @@ function showSignIn(message) {
 }
 
 function showApp(user) {
+  currentUser = user || null;
   el.signin.hidden = true;
   el.app.hidden = false;
   el.userName.textContent = user?.name || '';
-  el.userMeta.textContent = user?.badge ? `権限 ${user.badge}` : '';
+  const metaBits = [];
+  if (user?.badge) metaBits.push(user.badge);
+  if (user?.mode === 'ta') metaBits.push('TA');
+  el.userMeta.textContent = metaBits.join(' · ');
+  rebuildNav();
   startNotifyWatcher();
+}
+
+async function switchMode(nextMode) {
+  if (nextMode !== 'ta' && nextMode !== 'student') return;
+  if (viewMode() === nextMode) return;
+
+  if (ctx.demo) {
+    currentUser = nextMode === 'ta' ? { ...DEMO_TA_USER } : { ...DEMO_USER };
+    clearClientCaches();
+    showApp(currentUser);
+    navigate(defaultRoute(), { replace: true });
+    return;
+  }
+
+  el.modeSwitch.disabled = true;
+  try {
+    const { user } = await api.switchViewMode(nextMode);
+    clearClientCaches();
+    showApp(user);
+    navigate(defaultRoute(), { replace: true });
+  } catch (e) {
+    toasts.push(e.message || 'ビュー切替に失敗しました');
+  } finally {
+    el.modeSwitch.disabled = false;
+  }
 }
 
 el.signinForm.addEventListener('submit', async (e) => {
@@ -439,6 +539,12 @@ el.navToggle.addEventListener('click', () => {
   el.navToggle.setAttribute('aria-expanded', String(open));
 });
 
+if (el.modeSwitch) {
+  el.modeSwitch.addEventListener('click', () => {
+    switchMode(el.modeSwitch.dataset.mode || 'ta');
+  });
+}
+
 wirePanel();
 
 el.sourceRefresh.addEventListener('click', requestRefresh);
@@ -446,7 +552,10 @@ el.sourceRefresh.addEventListener('click', requestRefresh);
 // ── 起動 ───────────────────────────────────────────
 async function boot() {
   if (ctx.demo) {
-    showApp(DEMO_USER);
+    const demoUser = location.pathname.startsWith('/ta')
+      ? { ...DEMO_TA_USER }
+      : { ...DEMO_USER };
+    showApp(demoUser);
     render(currentRoute());
     return;
   }
@@ -454,6 +563,8 @@ async function boot() {
   try {
     const { user } = await api.me();
     showApp(user);
+    // TA モードなのに学生 URL のままならホームへ寄せない（深いリンクを残す）。
+    // 未知パスだけ defaultRoute に落ちる。
     render(currentRoute());
   } catch (e) {
     if (e instanceof Unauthenticated) {
@@ -461,7 +572,10 @@ async function boot() {
       return;
     }
     // `/api` が無い静的配信ではログインできない。デモに落として理由を出す。
-    showApp(DEMO_USER);
+    const demoUser = location.pathname.startsWith('/ta')
+      ? { ...DEMO_TA_USER }
+      : { ...DEMO_USER };
+    showApp(demoUser);
     setSource('demo', `デモデータ · 元アプリに接続できず（${e.message}）`);
     history.replaceState(null, '', `${currentRoute()}?demo=1`);
     render(currentRoute());

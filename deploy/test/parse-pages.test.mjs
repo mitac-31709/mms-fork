@@ -129,9 +129,35 @@ test('金額が読めない行では null になる（0 や NaN を作らない�
   assert.equal(second.unitPrice, 'お問い合わせください');
 });
 
-test('注文のステータスは素通し（語彙を作らない）', () => {
+test('注文のステータスは先頭装飾だけ落として素通し', () => {
   const [, second] = parseOrders(populatedOrders).orders;
-  assert.equal(second.status, '✓ 承認済み');
+  assert.equal(second.status, '承認済み');
+});
+
+test('注文の UUID 行 id と現行ステータス絵文字を取れる', () => {
+  const uuidRows = `
+  <tr id="order_3ef519cc-d396-47e9-bd62-51d8e095562e">
+    <td>USB 変換</td><td>¥562</td><td>1</td><td>¥562</td>
+    <td><span>⏳ 保留中</span></td><td>2026/10/01 16:19</td>
+  </tr>
+  <tr id="order_cbaa3201-bdf3-4768-9987-3b51eca518ea">
+    <td>サーバ</td><td>¥14,800</td><td>1</td><td>¥14,800</td>
+    <td><span>📋 注文済み</span></td><td>2026/09/15 20:32</td>
+  </tr>
+  <tr id="order_4e6fec2a-085a-4928-b85b-0c004eb0fc30">
+    <td>部品</td><td>¥100</td><td>2</td><td>¥200</td>
+    <td><span>✅ 受取済み</span></td><td>2026/09/01</td>
+  </tr>`;
+  const html = orders.replace(
+    /(<tbody\b[^>]*>)([\s\S]*?)(<\/tbody>)/,
+    (_all, open, _inner, close) => `${open}${uuidRows}${close}`
+  );
+  const parsed = parseOrders(html);
+  assert.equal(parsed.orders.length, 3);
+  assert.equal(parsed.orders[0].id, '3ef519cc-d396-47e9-bd62-51d8e095562e');
+  assert.equal(parsed.orders[0].status, '保留中');
+  assert.equal(parsed.orders[1].status, '注文済み');
+  assert.equal(parsed.orders[2].status, '受取済み');
 });
 
 test('行があっても列見出しと空状態は壊れない', () => {
@@ -330,13 +356,14 @@ test('通知の項目を取れる（合成した項目で検証）', () => {
   assert.equal(parsed.notifications.length, 2);
 
   // 印は公開 JS が見ている data-notification-id。<time> があれば日時はそこから。
+  // data-notification-read ボタンがあれば未読と分かる。
   assert.deepEqual(parsed.notifications[0], {
     id: 42,
     title: '週報の締め切りが近づいています',
     body: '第14週の週報は 08/05 までに提出してください。',
     at: '2026/08/01 09:30',
     atISO: '2026-08-01',
-    read: null                                 // 既読/未読の印が無いので当てずっぽうにしない
+    read: false
   });
 
   // id="notification_<id>" でも拾える。<time> が無ければ本文中の日付を使う。

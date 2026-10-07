@@ -11,7 +11,20 @@
  */
 
 export const DEMO_TODAY = '2026-08-05';
-export const DEMO_USER = { name: '三谷 慧介', badge: 'U' };
+export const DEMO_USER = {
+  name: '三谷 慧介',
+  badge: 'U',
+  mode: 'student',
+  canSwitch: true,
+  canTa: true
+};
+export const DEMO_TA_USER = {
+  name: '三谷 慧介',
+  badge: 'TAモード',
+  mode: 'ta',
+  canSwitch: true,
+  canTa: true
+};
 
 /** デモ用。本番（45s）より短くし、キャッシュ→裏更新をすぐ確認できるようにする。 */
 export const DEMO_FRESH_MS = 8_000;
@@ -195,13 +208,14 @@ export function demoDashboard(opts = {}) {
 }
 
 // ── 注文 ───────────────────────────────────────────
+// 元アプリの現行ステータス: 保留中 / 注文済み / 受取可能 / 受取済み / キャンセル済み
 const ORDER_SEED = [
-  [21, 'アルミ丸棒 φ20 1m', 1480, 4, '08-01', '完了'],
-  [22, '超硬バイト 12mm', 3280, 2, '07-28', '完了'],
-  [23, 'ノギス 150mm', 5600, 1, '07-24', '完了'],
-  [24, 'M4 六角穴付ボルト 100本', 980, 3, '07-20', '未完了'],
-  [25, '位置決めピン φ6 h7', 220, 12, '07-16', '未完了'],
-  [26, '切削油 1L', 1750, 2, '07-10', '完了']
+  [21, 'アルミ丸棒 φ20 1m', 1480, 4, '08-01', '受取済み'],
+  [22, '超硬バイト 12mm', 3280, 2, '07-28', '受取済み'],
+  [23, 'ノギス 150mm', 5600, 1, '07-24', '注文済み'],
+  [24, 'M4 六角穴付ボルト 100本', 980, 3, '07-20', '保留中'],
+  [25, '位置決めピン φ6 h7', 220, 12, '07-16', '受取可能'],
+  [26, '切削油 1L', 1750, 2, '07-10', 'キャンセル済み']
 ];
 
 function buildOrders({ generation = 1 } = {}) {
@@ -325,4 +339,226 @@ export function demoUnreadCount() {
   return {
     count: buildNotifications().notifications.filter((n) => n.read === false).length
   };
+}
+
+// ── TA ─────────────────────────────────────────────
+const TA_ORDER_SEED = [
+  ['a1111111-1111-4111-8111-111111111111', 'SN74LVC1G04DCKR', '02: うめおにぎり', 20, 2, '08-01', '注文済み'],
+  ['a2222222-2222-4222-8222-222222222222', 'アルミ丸棒 φ20', '01: RYKT', 1480, 4, '07-28', '受取可能'],
+  ['a3333333-3333-4333-8333-333333333333', 'ノギス 150mm', '03: (未定)', 5600, 1, '07-24', '保留中'],
+  ['a4444444-4444-4444-8444-444444444444', '切削油 1L', '02: うめおにぎり', 1750, 2, '07-10', '受取済み'],
+  ['a5555555-5555-4555-8555-555555555555', 'M4 ボルト 100本', '01: RYKT', 980, 3, '07-20', 'キャンセル済み']
+];
+
+function buildTaOrders({ generation = 1 } = {}) {
+  const orders = TA_ORDER_SEED.map(([id, product, team, unitPrice, quantity, created, status]) => ({
+    id,
+    product,
+    team,
+    unitPrice: `¥${unitPrice.toLocaleString('ja-JP')}`,
+    quantity: `${quantity}個`,
+    total: `¥${(unitPrice * quantity).toLocaleString('ja-JP')}`,
+    status,
+    createdAt: `${YEAR}/${md(created)}`,
+    createdAtISO: iso(`${YEAR}-${created}`),
+    unitPriceValue: unitPrice,
+    quantityValue: quantity,
+    totalValue: unitPrice * quantity
+  }));
+  return {
+    heading: '注文管理',
+    columns: [
+      { label: '商品' }, { label: 'チーム' }, { label: '単価' }, { label: '数量' },
+      { label: '合計' }, { label: 'ステータス' }, { label: '作成日時' }, { label: '操作' }
+    ],
+    empty: {
+      title: '注文がありません',
+      body: generation <= 1 ? '' : `（デモ再取得 #${generation}）`
+    },
+    filters: {
+      status: [
+        { value: '', label: 'すべて' },
+        { value: 'pending', label: '保留中' },
+        { value: 'ordered', label: '注文済み' },
+        { value: 'available', label: '受取可能' },
+        { value: 'received', label: '受取済み' },
+        { value: 'cancelled', label: 'キャンセル済み' }
+      ],
+      team: [
+        { value: '', label: 'すべて' },
+        { value: 't1', label: '01: RYKT' },
+        { value: 't2', label: '02: うめおにぎり' },
+        { value: 't3', label: '03: (未定)' }
+      ],
+      quantity: []
+    },
+    orders
+  };
+}
+
+export function demoTaOrders(opts = {}) {
+  return cached('ta-orders', buildTaOrders, opts);
+}
+
+export async function demoTaOrder(id, opts = {}) {
+  const data = await demoTaOrders(opts);
+  const o = (data.orders || []).find((x) => String(x.id) === String(id));
+  if (!o) throw new Error('注文が見つかりません');
+  return {
+    source: data.source,
+    fetchedAt: data.fetchedAt,
+    id: o.id,
+    product: o.product,
+    status: o.status,
+    team: o.team,
+    total: o.total,
+    totalValue: o.totalValue,
+    teamBudget: '¥12,400',
+    fields: {
+      単価: o.unitPrice,
+      数量: o.quantity,
+      ショップ名: 'デモショップ',
+      型番: o.product,
+      商品URL: ''
+    },
+    editHref: `/ta/orders/${o.id}/edit`
+  };
+}
+
+function buildTaDashboard({ generation = 1 } = {}) {
+  return {
+    heading: 'TAダッシュボード',
+    team: null,
+    notice: generation <= 1 ? '調整中' : `調整中 · デモ再取得 #${generation}`
+  };
+}
+
+export function demoTaDashboard(opts = {}) {
+  return cached('ta-dashboard', buildTaDashboard, opts);
+}
+
+const TA_SUB_ID = 'b1111111-1111-4111-8111-111111111111';
+
+function buildTaReports({ generation = 1 } = {}) {
+  return {
+    heading: '週報一覧',
+    columns: [
+      { label: 'チーム' }, { label: 'タイトル' }, { label: '期間' },
+      { label: 'ステータス' }, { label: '期限' }
+    ],
+    empty: null,
+    filters: {
+      team: [
+        { value: '', label: 'すべてのチーム' },
+        { value: 't1', label: '01: RYKT' },
+        { value: 't2', label: '02: うめおにぎり' }
+      ]
+    },
+    submissions: [
+      {
+        id: TA_SUB_ID,
+        label: '08/05 17:00 · 12/39 完了',
+        when: '08/05 17:00',
+        progress: '12/39 完了',
+        overdue: false,
+        selected: true
+      }
+    ],
+    reports: [
+      {
+        id: 'c1111111-1111-4111-8111-111111111111',
+        team: '01: RYKT',
+        title: '第15週 週報',
+        period: '08/03 – 08/09',
+        status: '未完了',
+        due: `${YEAR}/08/05`,
+        dueISO: `${YEAR}-08-05`
+      },
+      {
+        id: 'c2222222-2222-4222-8222-222222222222',
+        team: '02: うめおにぎり',
+        title: '第15週 週報',
+        period: '08/03 – 08/09',
+        status: '完了',
+        due: `${YEAR}/08/05`,
+        dueISO: `${YEAR}-08-05`
+      },
+      {
+        id: 'c3333333-3333-4333-8333-333333333333',
+        team: '03: (未定)',
+        title: '第14週 週報',
+        period: '07/27 – 08/02',
+        status: '期限切れ',
+        due: `${YEAR}/08/01`,
+        dueISO: `${YEAR}-08-01`
+      }
+    ].map((r) => (generation > 1 ? { ...r, title: `${r.title} · #${generation}` } : r))
+  };
+}
+
+export function demoTaReports(opts = {}) {
+  return cached(`ta-reports:${opts.submissionId || 'all'}`, buildTaReports, opts);
+}
+
+function buildTaTeams() {
+  return {
+    heading: 'チーム管理',
+    empty: null,
+    teams: [
+      {
+        id: 'd1111111-1111-4111-8111-111111111111',
+        name: '01: RYKT', members: '5 人', spend: '¥838',
+        pendingInvites: 'なし', spendValue: 838
+      },
+      {
+        id: 'd2222222-2222-4222-8222-222222222222',
+        name: '02: うめおにぎり', members: '4 人', spend: '¥74,507',
+        pendingInvites: 'なし', spendValue: 74507
+      },
+      {
+        id: 'd3333333-3333-4333-8333-333333333333',
+        name: '03: (未定)', members: '2 人', spend: '¥0',
+        pendingInvites: '1', spendValue: 0
+      }
+    ]
+  };
+}
+
+export function demoTaTeams(opts = {}) {
+  return cached('ta-teams', buildTaTeams, opts);
+}
+
+function buildTaUsers() {
+  return {
+    heading: 'ユーザー一覧 (TA)',
+    empty: null,
+    filters: {
+      status: [
+        { value: '', label: 'すべて' },
+        { value: 'active', label: '有効' },
+        { value: 'inactive', label: '無効' }
+      ]
+    },
+    users: [
+      {
+        id: 'e1111111-1111-4111-8111-111111111111',
+        name: '山田 太郎', email: 's25001@tokyo.kosen-ac.jp',
+        team: '01: RYKT', status: '有効'
+      },
+      {
+        id: 'e2222222-2222-4222-8222-222222222222',
+        name: '佐藤 花子', email: 's25002@tokyo.kosen-ac.jp',
+        team: '02: うめおにぎり', status: '有効'
+      },
+      {
+        id: 'e3333333-3333-4333-8333-333333333333',
+        name: '鈴木 次郎', email: 's25003@tokyo.kosen-ac.jp',
+        team: '未割当', status: '無効'
+      }
+    ]
+  };
+}
+
+export function demoTaUsers(opts = {}) {
+  return cached('ta-users', buildTaUsers, opts);
 }
