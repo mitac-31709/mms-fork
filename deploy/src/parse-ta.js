@@ -5,7 +5,7 @@
  */
 
 import {
-  parseColumns, parseEmptyState, parseIdToken, text, toIso
+  parseColumns, parseEmptyState, parseIdToken, parseOrderHistory, text, toIso
 } from './parse.js';
 import { cleanOrderStatus, toNumber } from './parse-pages.js';
 
@@ -267,6 +267,7 @@ export function parseTaOrderDetail(html) {
     totalValue: toNumber(total),
     teamBudget: budget ? text(budget) : null,
     fields,
+    history: parseOrderHistory(body),
     editHref: id ? `/ta/orders/${id}/edit` : null
   };
 }

@@ -8,7 +8,7 @@ import { describe, test } from 'node:test';
 
 import { parseReportsPage, parseReportDetail } from '../src/parse.js';
 import {
-  parseDashboard, parseEquipments, parseLoans, parseNotifications, parseOrders
+  parseDashboard, parseEquipments, parseLoans, parseNotifications, parseOrderDetail, parseOrders
 } from '../src/parse-pages.js';
 import { parseTaOrderDetail } from '../src/parse-ta.js';
 import {
@@ -129,6 +129,33 @@ describe('inspectParse · TA 注文詳細（Turbo Frame の断片）', () => {
     const r = inspectParse(path, bare, parseTaOrderDetail(bare));
     assert.equal(r.ok, false);
     assert.match(r.reasons.join('\n'), /<main> も <body> も無い/);
+  });
+});
+
+describe('inspectParse · 学生の注文詳細 `/orders/:id`', () => {
+  const path = '/orders/3';
+  const fragment = `
+<turbo-frame id="side_panel">
+<h2 class="text-2xl font-bold">アルミ丸棒</h2>
+<span class="rounded-full">保留中</span>
+<h3>注文ステータス履歴</h3>
+<div class="ml-4 flex-1"><p>注文作成</p><p>2026/10/01 16:19</p></div>
+</turbo-frame>`;
+
+  test('数値 id は注文詳細の想定に寄せる', () => {
+    assert.equal(expectationPath(path), '/orders/:id');
+  });
+
+  test('商品と履歴のある詳細は正常', () => {
+    const r = inspectParse(path, fragment, parseOrderDetail(fragment));
+    assert.equal(r.ok, true, r.reasons.join('; '));
+  });
+
+  test('商品名が取れない詳細は理由を返す', () => {
+    const broken = fragment.replace(/<h2 class="text-2xl[^]*?<\/h2>/, '');
+    const r = inspectParse(path, broken, parseOrderDetail(broken));
+    assert.equal(r.ok, false);
+    assert.match(r.reasons.join('\n'), /商品名/);
   });
 });
 

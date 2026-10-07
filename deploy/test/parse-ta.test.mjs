@@ -75,7 +75,33 @@ if (detailHtml) {
     assert.ok(d.fields['単価']);
     assert.ok(d.fields['ショップ名']);
   });
+
+  test('実 HTML から TA 注文の履歴を順序のまま取れる', () => {
+    const d = parseTaOrderDetail(detailHtml);
+    assert.ok(Array.isArray(d.history));
+    assert.ok(d.history.length >= 1);
+    assert.equal(d.history[0].title, '注文作成');
+  });
 }
+
+test('合成した TA 注文詳細から履歴を取れる', () => {
+  const html = `
+    <turbo-frame id="side_panel">
+      <h2 class="text-2xl font-bold">部品A</h2>
+      <span class="rounded-full">受取可能</span>
+      <div><label>単価</label><p>¥100</p></div>
+      <h3>注文ステータス履歴</h3>
+      <div class="ml-4 flex-1"><p>注文作成</p><p>2026/10/06 22:36</p></div>
+      <div class="ml-4 flex-1"><p>注文承認</p><p>注文済み</p></div>
+    </turbo-frame>`;
+  const d = parseTaOrderDetail(html);
+  assert.equal(d.product, '部品A');
+  assert.equal(d.status, '受取可能');
+  assert.deepEqual(d.history, [
+    { title: '注文作成', detail: '2026/10/06 22:36' },
+    { title: '注文承認', detail: '注文済み' }
+  ]);
+});
 
 const reportsHtml = live('live_ta_reports_sub.html') || live('live_ta_reports.html');
 if (reportsHtml) {

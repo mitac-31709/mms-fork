@@ -64,6 +64,8 @@ export const api = {
     body: JSON.stringify({ fieldName, content })
   }),
   orders: (opts) => request('/api/orders', opts),
+  /** 注文詳細（注文ステータス履歴つき）。元アプリの `/orders/:id` を読む。 */
+  order: (id, opts) => request(`/api/orders/${encodeURIComponent(id)}`, opts),
   equipments: (opts) => request('/api/equipments', opts),
   loans: (opts) => request('/api/loans', opts),
   notifications: (opts) => request('/api/notifications', opts),

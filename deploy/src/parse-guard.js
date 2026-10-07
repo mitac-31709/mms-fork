@@ -42,6 +42,10 @@ export const PAGE_EXPECTATIONS = {
   '/reports/:id': {
     kind: 'report-detail'
   },
+  // 学生の注文詳細 `/orders/:id`。side_panel の断片か全ページ。
+  '/orders/:id': {
+    kind: 'order-detail'
+  },
   // `/ta/orders/:id/details` は Turbo Frame の断片が正常形。
   // `<main>` / `<body>` を持たないので器の判定は frame で行う。
   '/ta/orders/:id': {
@@ -81,6 +85,9 @@ export function expectationPath(path) {
   if (PAGE_EXPECTATIONS[path]) return path;
   if (/^\/reports\/(?:\d+|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\/edit)?$/i.test(bare)) {
     return '/reports/:id';
+  }
+  if (/^\/orders\/(?:\d+|[0-9a-f-]{36})(?:\/details)?$/i.test(bare)) {
+    return '/orders/:id';
   }
   if (/^\/ta\/orders\/(?:\d+|[0-9a-f-]{36})\/details$/i.test(bare)) {
     return '/ta/orders/:id';
@@ -143,6 +150,9 @@ export function inspectParse(path, html, parsed) {
       break;
     case 'ta-order-detail':
       inspectTaOrderDetail(html, parsed, reasons);
+      break;
+    case 'order-detail':
+      inspectOrderDetail(html, parsed, reasons);
       break;
     default:
       reasons.push(`未知の kind: ${expect.kind}`);
@@ -225,6 +235,20 @@ function inspectTaOrderDetail(html, parsed, reasons) {
   }
   if (!String(parsed.product || '').trim()) {
     reasons.push('商品名が取れない');
+  }
+}
+
+/** 学生の注文詳細。商品名は必須、履歴は配列であること。 */
+function inspectOrderDetail(html, parsed, reasons) {
+  if (!parsed || typeof parsed !== 'object') {
+    reasons.push('パース結果がオブジェクトではない');
+    return;
+  }
+  if (!String(parsed.product || '').trim()) {
+    reasons.push('商品名が取れない');
+  }
+  if (!Array.isArray(parsed.history)) {
+    reasons.push('history が配列ではない');
   }
 }
 

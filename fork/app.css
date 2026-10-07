@@ -1416,6 +1416,39 @@ button.rail__link {
 }
 .meta__val { color: var(--color-ink); font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
 
+/* 注文ステータス履歴。元アプリの Timeline を縦の手順として出す。
+ * 点と縦線で順序を示す。本文は読むだけなので余白は詰める。 */
+.tl {
+  list-style: none;
+  margin: var(--space-2xs) 0 0;
+  padding: 0;
+}
+.tl__item {
+  position: relative;
+  display: grid;
+  grid-template-columns: var(--space-sm) minmax(0, 1fr);
+  gap: var(--space-sm);
+  padding: 0 0 var(--space-sm);
+}
+.tl__item:last-child { padding-bottom: 0; }
+.tl__item:not(:last-child)::before {
+  content: '';
+  position: absolute;
+  top: var(--space-sm);
+  bottom: 0;
+  left: calc(var(--space-sm) / 2 - 0.5px);
+  border-left: var(--rule-fine) solid var(--color-rule-2);
+}
+.tl__dot {
+  width: var(--space-2xs);
+  height: var(--space-2xs);
+  margin: var(--space-2xs) auto 0;
+  border-radius: 50%;
+  background: var(--color-accent);
+}
+.tl__title { color: var(--color-ink); font-size: var(--text-sm); font-weight: 600; }
+.tl__detail { color: var(--color-muted); font-size: var(--text-xs); }
+
 .save-state[data-state="saving"] { color: var(--color-ink-2); }
 .save-state[data-state="saved"]  { color: var(--color-accent); }
 .save-state[data-state="error"]  { color: var(--color-warn); }

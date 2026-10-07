@@ -149,6 +149,20 @@ export function metaList(entries) {
     h('dd', { class: 'meta__val' }, value instanceof Node ? value : String(value ?? '—')))));
 }
 
+/** 注文ステータス履歴。元アプリの Timeline を縦の手順として出す。
+ *  entries: [{ title, detail }]。空なら null（呼び出し側はそのまま子にできる）。 */
+export function historyTimeline(entries) {
+  const items = (entries || []).filter((e) => e && (e.title || e.detail));
+  if (!items.length) return null;
+  return h('div', { class: 'field' },
+    h('p', { class: 'field__label', text: '注文ステータス履歴' }),
+    h('ol', { class: 'tl' }, items.map((e) => h('li', { class: 'tl__item' },
+      h('span', { class: 'tl__dot', 'aria-hidden': 'true' }),
+      h('div', { class: 'tl__body' },
+        e.title ? h('p', { class: 'tl__title', text: e.title }) : null,
+        e.detail ? h('p', { class: 'tl__detail', text: e.detail }) : null)))));
+}
+
 // ── トースト ────────────────────────────────────────
 /* ビューポートの角に固定する。新しいのが来ても既存は動かさない。
    成功は祝わない。失敗と取り消せる操作にだけ出す。 */

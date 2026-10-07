@@ -7,7 +7,7 @@
 import { api } from '../api.js';
 import { demoTaOrder, demoTaOrders } from '../demo.js';
 import { fmtDate, fmtYen } from '../format.js';
-import { dataTable, emptyBlock, h, metaList, panel, statusPill, toasts } from '../ui.js';
+import { dataTable, emptyBlock, h, historyTimeline, metaList, panel, statusPill, toasts } from '../ui.js';
 
 export const meta = {
   route: '/ta/orders',
@@ -402,7 +402,8 @@ export function render(data, ctx) {
         ['チーム累計予算', detail.teamBudget || '—'],
         ...Object.entries(detail.fields || {}).map(([k, v]) => [k, v || '—'])
       ];
-      bodyHost.replaceWith(metaList(entries));
+      bodyHost.replaceWith(...[metaList(entries), historyTimeline(detail.history)]
+        .filter(Boolean));
     } catch (e) {
       bodyHost.replaceWith(metaList([
         ['商品', o.product || '—'],

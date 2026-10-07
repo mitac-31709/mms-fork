@@ -252,6 +252,26 @@ export function demoOrders(opts = {}) {
   return cached('orders', buildOrders, opts);
 }
 
+export async function demoOrder(id, opts = {}) {
+  const data = await demoOrders(opts);
+  const o = (data.orders || []).find((x) => String(x.id) === String(id));
+  if (!o) throw new Error('注文が見つかりません');
+  return {
+    source: data.source,
+    fetchedAt: data.fetchedAt,
+    id: o.id,
+    product: o.product,
+    status: o.status,
+    unitPrice: o.unitPrice,
+    quantity: o.quantity,
+    total: o.total,
+    createdAt: o.createdAt,
+    history: [
+      { title: '注文作成', detail: o.createdAt || null }
+    ]
+  };
+}
+
 // ── 機材 ───────────────────────────────────────────
 function buildEquipments({ generation = 1 } = {}) {
   return {
@@ -421,6 +441,9 @@ export async function demoTaOrder(id, opts = {}) {
       型番: o.product,
       商品URL: ''
     },
+    history: [
+      { title: '注文作成', detail: o.createdAt || null }
+    ],
     editHref: `/ta/orders/${o.id}/edit`
   };
 }

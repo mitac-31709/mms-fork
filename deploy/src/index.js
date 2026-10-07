@@ -43,7 +43,7 @@ import {
 import { parseIdToken, parseReportsPage, parseReportDetail } from './parse.js';
 import {
   parseDashboard, parseEquipments, parseLoans, parseNotifications,
-  parseOrders
+  parseOrderDetail, parseOrders
 } from './parse-pages.js';
 import {
   parseTaDashboard, parseTaOrderDetail, parseTaOrders, parseTaReports,
@@ -729,6 +729,18 @@ async function handleApi(request, url, env, ctx) {
     }
     return json(await page(
       session.cookie, originPath, parseTaReports, env, ctx, { refresh }
+    ));
+  }
+
+  // 学生の注文詳細。履歴（注文ステータス履歴）も含めて返す。
+  const orderMatch = path.match(/^\/api\/orders\/([^/]+)$/);
+  if (orderMatch && request.method === 'GET') {
+    const id = parseIdToken(orderMatch[1]);
+    if (id == null) return json({ error: 'そのような口はありません' }, 404);
+    const originPath = `/orders/${id}`;
+    const refresh = url.searchParams.get('refresh') === '1';
+    return json(await page(
+      session.cookie, originPath, parseOrderDetail, env, ctx, { refresh }
     ));
   }
 
