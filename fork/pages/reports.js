@@ -10,12 +10,17 @@
  */
 
 import { api } from '../api.js';
-import { DEMO_TODAY, demoReports, demoReport } from '../demo.js';
+import {
+  DEMO_TODAY, DEMO_USER, demoDashboard, demoReports, demoReport,
+  demoTaTeams, demoTaUsers
+} from '../demo.js';
 import { dueRest, fmtDate, fmtShort, fmtTime } from '../format.js';
 import {
-  createLocalReport, deleteLocalReport, documentTitle, filledWeeks,
+  applyProfileToDoc, createLocalReport, deleteLocalReport, documentTitle,
+  filledWeeks, fillProfileBlanks, getProfile, hasProfile, isProfileEmpty,
   listLocalReports, LOCAL_STATUSES, MEMBER_SLOTS, mergeLocalReports,
-  saveLocalReport, SUPPORT_SLOTS, weekDisplayLabel, weekToFieldList
+  parseTeamLine, profileToMeta, saveLocalReport, saveProfile,
+  SUPPORT_SLOTS, weekDisplayLabel, weekToFieldList
 } from '../report-local.js';
 import { exportReportsExcel, importReportsExcel } from '../report-excel.js';
 import { dataTable, dueCell, emptyBlock, h, metaList, panel, statusPill, toasts } from '../ui.js';
@@ -92,12 +97,16 @@ export function render(data, ctx) {
         h('button', {
           class: 'btn btn--primary', type: 'button', id: 'local-new',
           onclick: () => {
-            const created = createLocalReport({});
+            const created = createLocalReport({ meta: profileToMeta(getProfile()) });
             refreshLocal();
             setTab('local');
-            openEditor(created.id);
+            openDraft(created.id);
           }
-        }, '下書きを書く'))),
+        }, '下書きを書く'),
+        h('button', {
+          class: 'btn btn--secondary', type: 'button', id: 'local-settings',
+          onclick: () => openProfileSettings()
+        }, '⚙ 下書き設定'))),
     tabsEl,
     tabHost,
     fileInput);
@@ -105,7 +114,7 @@ export function render(data, ctx) {
   paintTabs();
   paintTab();
   if (tab === 'origin' && o.selectedId != null) openDetail(o.selectedId, { focus: false });
-  if (tab === 'local' && l.selectedId) openEditor(l.selectedId, { focus: false });
+  if (tab === 'local' && l.selectedId) openDraft(l.selectedId, { focus: false });
   return page;
 
   // ── URL ───────────────────────────────────────────
@@ -858,10 +867,10 @@ export function render(data, ctx) {
           body: '「下書きを書く」か「Excel取込」「提出用からコピー」で追加できます。',
           actionLabel: '下書きを書く',
           onAction: () => {
-            const created = createLocalReport({});
+            const created = createLocalReport({ meta: profileToMeta(getProfile()) });
             refreshLocal();
             paintTab();
-            openEditor(created.id);
+            openDraft(created.id);
           }
         }));
       return wrap;
@@ -876,7 +885,7 @@ export function render(data, ctx) {
       },
       h('button', {
         class: 'card__main', type: 'button',
-        onclick: () => openEditor(r.id),
+        onclick: () => openDraft(r.id),
         ariaLabel: `${documentTitle(r)}を開く`
       },
       h('p', { class: 'card__title', text: documentTitle(r) }),
@@ -955,101 +964,122 @@ export function render(data, ctx) {
         return;
       }
       const { created, updated } = mergeLocalReports(incoming);
+      const prof = getProfile();
+      const patched = { ...incoming[0]?.meta, members: incoming[0]?.meta?.members, support: incoming[0]?.meta?.support };
+      const pfilled = fillProfileBlanks(prof, patched);
+      if (pfilled.length) saveProfile(prof);
       refreshLocal();
       paintTab();
       syncUrl();
-      toasts.push(`取り込み完了：新規 ${created} 件・更新 ${updated} 件`);
-      if (incoming[0]?.id) openEditor(incoming[0].id);
+      toasts.push(`取り込み完了：新規 ${created} 件・更新 ${updated} 件`
+        + (pfilled.length ? '（ヘッダー設定にも反映）' : ''));
+      if (incoming[0]?.id) openDraft(incoming[0].id);
     } catch (err) {
       toasts.push(err.message || '取り込みに失敗しました');
     }
   }
 
-  // ── 下書きエディタ ────────────────────────────────
-  function openEditor(id, { focus = true } = {}) {
+  // ── 下書きエディタ（2 階層：概要 → 週詳細） ────────
+  // 提出用の詳細パネルと同じ見た目にする。ヘッダー設定は持たない。
+  // チーム名・メンバー等は「⚙ 下書き設定」で一括管理する。
+  let editingDoc = null;
+
+  function loadDraftIntoEditor(id) {
+    if (editingDoc && sameId(editingDoc.id, id)) return editingDoc;
     const found = localRows.find((x) => sameId(x.id, id))
       || listLocalReports().find((x) => sameId(x.id, id));
-    if (!found) return;
+    if (!found) return null;
     if (!localRows.some((x) => sameId(x.id, found.id))) refreshLocal();
-    const current = JSON.parse(JSON.stringify(
+    editingDoc = JSON.parse(JSON.stringify(
       localRows.find((x) => sameId(x.id, id)) || found));
-    if (!current.meta) current.meta = {};
-    if (!Array.isArray(current.weeks)) current.weeks = [];
+    if (!editingDoc.meta) editingDoc.meta = {};
+    if (!Array.isArray(editingDoc.weeks)) editingDoc.weeks = [];
+    return editingDoc;
+  }
 
+  function persistDraft(saveStateEl) {
+    if (!editingDoc) return;
+    const saved = saveLocalReport(editingDoc);
+    editingDoc = JSON.parse(JSON.stringify(saved));
+    if (saveStateEl) {
+      saveStateEl.dataset.state = 'saved';
+      const at = fmtTime(new Date().toISOString());
+      saveStateEl.textContent = `保存しました${at ? `（${at}）` : ''}`;
+    }
+  }
+
+  function closeDraftPanels() {
+    editingDoc = null;
+    l.selectedId = null;
+    refreshLocal();
+    paintTab();
+    syncUrl();
+  }
+
+  function weekHasContent(week) {
+    return Boolean(week?.progress || week?.issue || week?.plan || week?.workedAt
+      || week?.absentees);
+  }
+
+  /** 下書きの概要：週の一覧。行を開くと週詳細（提出用と同じ UI）。 */
+  function openDraft(id, { focus = true } = {}) {
+    const current = loadDraftIntoEditor(id);
+    if (!current) return;
     l.selectedId = String(current.id);
     if (tab !== 'local') tab = 'local';
     paintTab();
     syncUrl();
 
-    const saveState = h('span', {
-      class: 'save-state', id: 'save-state', dataset: { state: 'idle' },
-      text: 'このブラウザに自動保存されます'
-    });
-
     const statusSelect = h('select', {
       class: 'input select', id: 'local-status',
       onchange: (e) => {
         current.status = e.target.value;
-        persist();
+        persistDraft();
         paintTab();
       }
     }, LOCAL_STATUSES.map((s) => h('option', {
       value: s, selected: current.status === s || null, text: s
     })));
 
-    const body = h('div', { class: 'local-doc' },
+    const filled = filledWeeks(current).length;
+    const total = (current.weeks || []).length;
+    const linked = (current.weeks || []).filter((w) => w.originId);
+
+    const body = h('div', {},
       metaList([
         ['保存先', 'このブラウザ（localStorage）'],
-        ['形式', '公式週報テンプレート'],
-        ['ローカルID', current.id]
+        ['記入', `${filled} / ${total} 週`],
+        ['更新', current.updatedAt
+          ? `${fmtDate(String(current.updatedAt).slice(0, 10))} ${fmtTime(current.updatedAt)}`.trim()
+          : '—'],
+        ['同期', linked.length
+          ? linked.map((w) => w.originTitle || w.label).join('、')
+          : '未同期']
       ]),
       h('div', { class: 'field' },
         h('label', { class: 'field__label', for: 'local-status', text: 'ステータス' }),
         h('span', { class: 'select-wrap' }, statusSelect)),
-      h('section', { class: 'local-section' },
-        h('h2', { class: 'local-section__title', text: 'ヘッダー' }),
-        h('div', { class: 'grid-2' },
-          fieldText('teamName', 'チーム名', current.meta.teamName, (v) => {
-            current.meta.teamName = v;
-          }),
-          fieldText('teamNumber', 'チーム番号', current.meta.teamNumber, (v) => {
-            current.meta.teamNumber = v;
-          })),
-        fieldArea('overview', '作品概要', current.meta.overview, (v) => {
-          current.meta.overview = v;
-        }, 4),
-        h('div', { class: 'grid-2' },
-          fieldText('meetingDay', '定例ミーティング曜日', current.meta.meetingDay, (v) => {
-            current.meta.meetingDay = v;
-          }),
-          fieldText('meetingTime', '定例ミーティング時間', current.meta.meetingTime, (v) => {
-            current.meta.meetingTime = v;
-          }))),
-      h('section', { class: 'local-section' },
-        h('h2', { class: 'local-section__title', text: 'チームメンバー' }),
-        h('div', { class: 'grid-2' },
-          ...Array.from({ length: MEMBER_SLOTS }, (_, i) =>
-            fieldText(`member-${i}`, `メンバー ${i + 1}`, current.meta.members?.[i] || '', (v) => {
-              if (!current.meta.members) current.meta.members = [];
-              current.meta.members[i] = v;
-            })))),
-      h('section', { class: 'local-section' },
-        h('h2', { class: 'local-section__title', text: 'サポートメンバー' }),
-        h('div', { class: 'grid-2' },
-          ...Array.from({ length: SUPPORT_SLOTS }, (_, i) =>
-            fieldText(`support-${i}`, `サポート ${i + 1}`, current.meta.support?.[i] || '', (v) => {
-              if (!current.meta.support) current.meta.support = [];
-              current.meta.support[i] = v;
-            })))),
-      h('section', { class: 'local-section' },
-        h('h2', { class: 'local-section__title', text: '各週の記入' }),
-        h('p', {
-          class: 'field__hint',
-          text: 'テンプレートの週ブロックです。週ごとの「同期」で提出用へ書き込めます。'
-        }),
-        h('div', { class: 'week-list' }, current.weeks.map((week, wi) =>
-          weekEditor(week, wi)))),
-      h('p', { class: 'field__hint' }, saveState));
+      h('div', { class: 'field' },
+        h('p', { class: 'field__label', text: '週を選ぶ' }),
+        h('div', { class: 'itemlist' }, current.weeks.map((week) => {
+          const done = weekHasContent(week);
+          return h('button', {
+            class: 'item item--button', type: 'button',
+            onclick: () => openWeek(current.id, week.key)
+          },
+          h('span', { class: 'item__title', text: weekDisplayLabel(week) }),
+          h('span', {
+            class: 'item__meta',
+            text: [
+              done ? '記入あり' : '未記入',
+              week.originId ? `🔗 ${week.originTitle || '同期済'}` : null
+            ].filter(Boolean).join(' · ')
+          }));
+        }))),
+      h('p', {
+        class: 'field__hint',
+        text: 'チーム名・メンバーなどのヘッダーは「⚙ 下書き設定」で変更できます。'
+      }));
 
     panel.open({
       eyebrow: '下書き',
@@ -1058,13 +1088,13 @@ export function render(data, ctx) {
       actions: [
         h('button', {
           class: 'btn btn--primary', type: 'button', id: 'local-sync',
-          onclick: () => openSyncDialog(current)
+          onclick: () => openSyncDialog(editingDoc || current)
         }, '提出用に同期'),
         h('button', {
           class: 'btn btn--secondary', type: 'button',
           onclick: async () => {
-            persist();
-            await exportOne(current);
+            persistDraft();
+            await exportOne(editingDoc || current);
           }
         }, 'Excel出力'),
         h('button', {
@@ -1077,93 +1107,312 @@ export function render(data, ctx) {
         }, '削除')
       ],
       onClose: () => {
-        l.selectedId = null;
-        refreshLocal();
-        paintTab();
-        syncUrl();
+        closeDraftPanels();
         return tabHost.querySelector('.card__main');
       }
     });
 
     if (!focus) document.activeElement?.blur?.();
+  }
 
-    function fieldText(name, label, value, apply) {
-      const id = `local-${name}`;
-      return h('div', { class: 'field' },
-        h('label', { class: 'field__label', for: id, text: label }),
-        h('input', {
-          class: 'input', type: 'text', id, value: value || '',
-          oninput: (e) => { apply(e.target.value); persist(); }
-        }));
-    }
+  /** 週の詳細。提出用の詳細パネルと同じ構成（概要＋本文欄＋自動保存）。 */
+  function openWeek(docId, weekKey, { focus = true } = {}) {
+    const current = (editingDoc && sameId(editingDoc.id, docId))
+      ? editingDoc
+      : loadDraftIntoEditor(docId);
+    if (!current) return;
+    const week = current.weeks.find((w) => w.key === weekKey) || current.weeks[0];
+    if (!week) return;
+    l.selectedId = String(current.id);
+    paintTab();
+    syncUrl();
 
-    function fieldArea(name, label, value, apply, rows = 4) {
-      const id = `local-${name}`;
-      const ta = h('textarea', {
-        class: 'input textarea', id, rows,
-        oninput: (e) => { apply(e.target.value); persist(); }
-      });
-      ta.value = value || '';
-      return h('div', { class: 'field' },
-        h('label', { class: 'field__label', for: id, text: label }),
-        ta);
-    }
+    const saveState = h('span', {
+      class: 'save-state', id: 'save-state', dataset: { state: 'idle' },
+      text: '変更は自動で保存されます'
+    });
 
-    function weekEditor(week, wi) {
-      const hasContent = Boolean(week.progress || week.issue || week.plan || week.workedAt);
-      return h('details', {
-        class: 'week-block',
-        open: hasContent || null
-      },
-      h('summary', { class: 'week-block__summary' },
-        h('span', {
-          class: `week-block__dot${hasContent ? ' is-filled' : ''}`,
-          'aria-hidden': 'true'
-        }),
-        h('span', { class: 'week-block__label', text: weekDisplayLabel(week) }),
-        h('span', {
-          class: 'week-block__hint',
-          text: [
-            hasContent ? '記入あり' : '未記入',
-            week.originId ? '🔗同期済' : null
-          ].filter(Boolean).join(' · ')
-        })),
-      h('div', { class: 'week-block__body' },
+    const oninput = (key) => (e) => {
+      week[key] = e.target.value;
+      persistDraft(saveState);
+    };
+
+    const workedInput = h('input', {
+      class: 'input', type: 'text', id: 'week-worked',
+      value: week.workedAt || '',
+      placeholder: '例：10月2日 15時～17時',
+      oninput: oninput('workedAt')
+    });
+    const absInput = h('input', {
+      class: 'input', type: 'text', id: 'week-abs',
+      value: week.absentees || '',
+      placeholder: '例：なし',
+      oninput: oninput('absentees')
+    });
+    const progressTa = h('textarea', {
+      class: 'input textarea textarea--tall', id: 'week-progress', rows: 8,
+      placeholder: '前回から進んだことを書く',
+      oninput: oninput('progress')
+    });
+    progressTa.value = week.progress || '';
+    const issueTa = h('textarea', {
+      class: 'input textarea', id: 'week-issue', rows: 4,
+      oninput: oninput('issue')
+    });
+    issueTa.value = week.issue || '';
+    const planTa = h('textarea', {
+      class: 'input textarea', id: 'week-plan', rows: 4,
+      oninput: oninput('plan')
+    });
+    planTa.value = week.plan || '';
+
+    panel.open({
+      eyebrow: documentTitle(current),
+      title: weekDisplayLabel(week),
+      body: [
+        metaList([
+          ['期間', week.period || '—'],
+          ['同期先', week.originId ? (week.originTitle || week.originId) : '未同期'],
+          ['保存先', 'このブラウザ（localStorage）']
+        ]),
         h('div', { class: 'grid-2' },
-          fieldText(`w${wi}-worked`, '集まって作業した日時', week.workedAt, (v) => {
-            current.weeks[wi].workedAt = v;
-          }),
-          fieldText(`w${wi}-abs`, '欠席者', week.absentees, (v) => {
-            current.weeks[wi].absentees = v;
-          })),
-        fieldArea(`w${wi}-progress`, '前回からの進捗', week.progress, (v) => {
-          current.weeks[wi].progress = v;
-        }, 3),
-        fieldArea(`w${wi}-issue`, '問題点', week.issue, (v) => {
-          current.weeks[wi].issue = v;
-        }, 2),
-        fieldArea(`w${wi}-plan`, '次回までの予定', week.plan, (v) => {
-          current.weeks[wi].plan = v;
-        }, 2),
+          h('div', { class: 'field' },
+            h('label', { class: 'field__label', for: 'week-worked', text: '集まって作業した日時' }),
+            workedInput),
+          h('div', { class: 'field' },
+            h('label', { class: 'field__label', for: 'week-abs', text: '欠席者' }),
+            absInput)),
+        h('div', { class: 'field' },
+          h('label', { class: 'field__label', for: 'week-progress', text: '前回からの進捗' }),
+          progressTa),
+        h('div', { class: 'field' },
+          h('label', { class: 'field__label', for: 'week-issue', text: '問題点' }),
+          issueTa),
+        h('div', { class: 'field' },
+          h('label', { class: 'field__label', for: 'week-plan', text: '次回までの予定' }),
+          planTa,
+          h('p', { class: 'field__hint' }, saveState))
+      ],
+      actions: [
         h('button', {
-          class: 'btn btn--secondary btn--small', type: 'button',
-          onclick: () => {
-            persist();
-            openSyncDialog(current, week.key);
+          class: 'btn btn--primary', type: 'button',
+          onclick: () => openSyncDialog(editingDoc || current, week.key)
+        }, 'この週を提出用に同期'),
+        h('button', {
+          class: 'btn btn--secondary', type: 'button',
+          onclick: () => openDraft(current.id, { focus: false })
+        }, '戻る')
+      ],
+      onClose: () => {
+        closeDraftPanels();
+        return tabHost.querySelector('.card__main');
+      }
+    });
+
+    if (!focus) document.activeElement?.blur?.();
+  }
+
+  // ── 下書き設定（ヘッダー共通値） ──────────────────
+  const PROFILE_LABELS = {
+    teamName: 'チーム名', teamNumber: 'チーム番号', overview: '作品概要',
+    meetingDay: 'ミーティング曜日', meetingTime: 'ミーティング時間'
+  };
+
+  /** アプリから埋められる分だけ集める（ダッシュボード・ログイン名・TA 名簿）。 */
+  async function collectAppProfilePatch() {
+    const patch = { members: [], support: [] };
+    // ログイン名 → メンバー
+    const userName = ctx.demo ? DEMO_USER.name : ctx.user?.name;
+    if (userName) patch.members.push(String(userName).trim());
+    // ダッシュボードのチーム行 → チーム番号・チーム名
+    let teamNumber = '';
+    let teamName = '';
+    try {
+      const dash = ctx.demo ? await demoDashboard() : await api.dashboard();
+      const t = parseTeamLine(dash?.team);
+      teamNumber = t.number;
+      teamName = t.name;
+      if (t.number) patch.teamNumber = t.number;
+      if (t.name) patch.teamName = t.name;
+    } catch {
+      // 取れなくても他は埋める
+    }
+    // TA 権限があれば名簿から同チームの氏名を補う
+    const canTa = Boolean(ctx.user?.canTa || ctx.user?.canSwitch);
+    if (canTa) {
+      try {
+        const teams = ((ctx.demo ? await demoTaTeams() : await api.taTeams())?.teams) || [];
+        const users = ((ctx.demo ? await demoTaUsers() : await api.taUsers())?.users) || [];
+        const norm = (s) => String(s || '').replace(/\s+/g, '');
+        const mine = teams.find((t) => {
+          if (teamNumber && norm(t.name).includes(teamNumber)) return true;
+          if (teamName && norm(t.name).includes(norm(teamName))) return true;
+          return false;
+        });
+        if (mine) {
+          for (const u of users) {
+            if (u.team === mine.name && u.name) patch.members.push(String(u.name).trim());
           }
-        }, 'この週を提出用に同期')));
+        }
+      } catch {
+        // 名簿が取れなくても続ける
+      }
+    }
+    return patch;
+  }
+
+  function openProfileSettings() {
+    const profile = getProfile();
+    const firstRun = !hasProfile() && isProfileEmpty(profile);
+
+    const note = h('p', { class: 'field__hint', id: 'profile-note', text: ' ' });
+    const input = (id, value, placeholder) => h('input', {
+      class: 'input', type: 'text', id, value: value || '', placeholder: placeholder || null,
+      oninput: () => { note.textContent = ' '; }
+    });
+
+    const teamNameInput = input('profile-teamName', profile.teamName, '例：RYKT');
+    const teamNumberInput = input('profile-teamNumber', profile.teamNumber, '例：01');
+    const overviewTa = h('textarea', {
+      class: 'input textarea', id: 'profile-overview', rows: 3
+    });
+    overviewTa.value = profile.overview || '';
+    const meetingDayInput = input('profile-meetingDay', profile.meetingDay, '例：木');
+    const meetingTimeInput = input('profile-meetingTime', profile.meetingTime, '例：16時30分～18時');
+    const memberInputs = Array.from({ length: MEMBER_SLOTS }, (_, i) =>
+      input(`profile-member-${i}`, profile.members?.[i] || '', i === 0 ? '例：1年 山田太郎' : null));
+    const supportInputs = Array.from({ length: SUPPORT_SLOTS }, (_, i) =>
+      input(`profile-support-${i}`, profile.support?.[i] || ''));
+
+    const autoBtn = h('button', {
+      class: 'btn btn--secondary', type: 'button', id: 'profile-autofill',
+      onclick: runAutoFill
+    }, 'アプリから自動入力');
+
+    panel.open({
+      eyebrow: '下書き',
+      title: '下書き設定',
+      body: h('div', {},
+        h('p', {
+          class: 'field__hint',
+          text: 'チーム名・メンバーなどは全ての下書きで共通です。'
+            + 'ここで一度決めると、新しい下書きと Excel に自動で入ります。'
+            + 'クラスが分かる場合は「1年 山田太郎」のように入力してください。'
+        }),
+        h('div', { class: 'grid-2' },
+          h('div', { class: 'field' },
+            h('label', { class: 'field__label', for: 'profile-teamName', text: 'チーム名' }),
+            teamNameInput),
+          h('div', { class: 'field' },
+            h('label', { class: 'field__label', for: 'profile-teamNumber', text: 'チーム番号' }),
+            teamNumberInput)),
+        h('div', { class: 'field' },
+          h('label', { class: 'field__label', for: 'profile-overview', text: '作品概要' }),
+          overviewTa),
+        h('div', { class: 'grid-2' },
+          h('div', { class: 'field' },
+            h('label', { class: 'field__label', for: 'profile-meetingDay', text: '定例ミーティング曜日' }),
+            meetingDayInput),
+          h('div', { class: 'field' },
+            h('label', { class: 'field__label', for: 'profile-meetingTime', text: '定例ミーティング時間' }),
+            meetingTimeInput)),
+        h('div', { class: 'field' },
+          h('p', { class: 'field__label', text: 'チームメンバー' }),
+          h('div', { class: 'grid-2' }, ...memberInputs)),
+        h('div', { class: 'field' },
+          h('p', { class: 'field__label', text: 'サポートメンバー' }),
+          h('div', { class: 'grid-2' }, ...supportInputs)),
+        note),
+      actions: [
+        h('button', {
+          class: 'btn btn--primary', type: 'button', id: 'profile-save',
+          onclick: () => {
+            const next = saveProfile(readProfileForm());
+            refreshLocal();
+            paintTab();
+            toasts.push('下書き設定を保存しました');
+            void next;
+            panel.close();
+          }
+        }, '保存して閉じる'),
+        autoBtn,
+        h('button', {
+          class: 'btn btn--secondary', type: 'button', id: 'profile-backfill',
+          onclick: backfillDrafts
+        }, '既存の下書きの空欄に反映'),
+        h('button', {
+          class: 'btn btn--secondary', type: 'button',
+          onclick: () => panel.close()
+        }, '閉じる')
+      ],
+      onClose: () => document.getElementById('local-settings')
+    });
+
+    if (firstRun) runAutoFill();
+
+    function readProfileForm() {
+      return {
+        teamName: teamNameInput.value,
+        teamNumber: teamNumberInput.value,
+        overview: overviewTa.value,
+        meetingDay: meetingDayInput.value,
+        meetingTime: meetingTimeInput.value,
+        members: memberInputs.map((el) => el.value),
+        support: supportInputs.map((el) => el.value)
+      };
     }
 
-    function persist() {
-      const saved = saveLocalReport(current);
-      Object.assign(current, JSON.parse(JSON.stringify(saved)));
-      if (saveState) {
-        saveState.dataset.state = 'saved';
-        const at = fmtTime(new Date().toISOString());
-        saveState.textContent = `保存しました${at ? `（${at}）` : ''}`;
+    async function runAutoFill() {
+      autoBtn.dataset.state = 'loading';
+      autoBtn.disabled = true;
+      try {
+        const patch = await collectAppProfilePatch();
+        const draft = readProfileForm();
+        const filled = fillProfileBlanks(draft, patch);
+        if (!filled.length) {
+          note.textContent = '自動入力できる空欄がありませんでした。';
+          toasts.push('自動入力できる空欄がありませんでした');
+          return;
+        }
+        teamNameInput.value = draft.teamName || '';
+        teamNumberInput.value = draft.teamNumber || '';
+        overviewTa.value = draft.overview || '';
+        meetingDayInput.value = draft.meetingDay || '';
+        meetingTimeInput.value = draft.meetingTime || '';
+        draft.members?.forEach((v, i) => {
+          if (memberInputs[i]) memberInputs[i].value = v || '';
+        });
+        draft.support?.forEach((v, i) => {
+          if (supportInputs[i]) supportInputs[i].value = v || '';
+        });
+        const names = filled.map((k) => PROFILE_LABELS[k] || k);
+        note.textContent = `自動入力：${names.join('、')}（保存で確定します）`;
+        toasts.push(`自動入力：${names.join('、')}`);
+      } catch (e) {
+        toasts.push(e.message || '自動入力に失敗しました');
+      } finally {
+        delete autoBtn.dataset.state;
+        autoBtn.disabled = false;
       }
-      const titleEl = document.getElementById('panel-title');
-      if (titleEl) titleEl.textContent = documentTitle(current);
+    }
+
+    function backfillDrafts() {
+      const saved = saveProfile(readProfileForm());
+      let docs = 0;
+      let cells = 0;
+      for (const row of listLocalReports()) {
+        const n = applyProfileToDoc(row, saved);
+        if (n > 0) {
+          saveLocalReport(row);
+          docs += 1;
+          cells += n;
+        }
+      }
+      refreshLocal();
+      paintTab();
+      toasts.push(docs
+        ? `既存の下書き ${docs} 件・${cells} 項目に反映しました`
+        : '反映できる空欄がありませんでした');
     }
   }
 
@@ -1218,7 +1467,10 @@ export function render(data, ctx) {
         status: '下書き',
         originId: originRow.id,
         originTitle: originRow.title || null,
-        meta: { overview: byName.shortnote || byName.content || '' }
+        meta: {
+          ...profileToMeta(getProfile()),
+          overview: byName.shortnote || byName.content || ''
+        }
       });
       const weekKey = pickWeekKeyForOrigin(originRow, created);
       const weeks = created.weeks.map((w) => {
@@ -1238,7 +1490,7 @@ export function render(data, ctx) {
       refreshLocal();
       setTab('local');
       toasts.push(`「${documentTitle(saved)}」に下書きコピーしました`);
-      openEditor(saved.id);
+      openDraft(saved.id);
     } catch (e) {
       toasts.push(e.message || 'コピーに失敗しました');
     }
@@ -1254,7 +1506,7 @@ export function render(data, ctx) {
         h('button', {
           class: 'btn btn--secondary', type: 'button',
           onclick: () => {
-            if (l.selectedId) openEditor(l.selectedId, { focus: false });
+            if (l.selectedId) openDraft(l.selectedId, { focus: false });
             else panel.close();
           }
         }, '戻る')
@@ -1331,7 +1583,7 @@ export function render(data, ctx) {
       actions: [
         h('button', {
           class: 'btn btn--secondary', type: 'button',
-          onclick: () => openEditor(localDoc.id, { focus: false })
+          onclick: () => openDraft(localDoc.id, { focus: false })
         }, '戻る')
       ]
     });
@@ -1409,7 +1661,7 @@ export function render(data, ctx) {
           goBtn,
           h('button', {
             class: 'btn btn--secondary', type: 'button',
-            onclick: () => openEditor(localDoc.id, { focus: false })
+            onclick: () => openDraft(localDoc.id, { focus: false })
           }, '戻る')
         ]
       });
@@ -1471,7 +1723,7 @@ export function render(data, ctx) {
       refreshLocal();
       paintTab();
       syncUrl();
-      openEditor(linked.id, { focus: false });
+      openDraft(linked.id, { focus: false });
     } catch (e) {
       toasts.push(e.message || '同期に失敗しました');
       openSyncDialog(localDoc, week.key);

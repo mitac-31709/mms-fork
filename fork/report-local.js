@@ -284,6 +284,176 @@ export function clearLocalReports() {
   localStorage.removeItem(LEGACY_KEY);
 }
 
+/* ── 下書き設定（ヘッダー共通値） ────────────────────
+ * チーム名・番号・メンバーなどは下書きごとに変わらないので、
+ * 1 箇所（プロフィール）で持つ。新規下書きはここから写す。
+ */
+const PROFILE_KEY = 'mms-fork.local-profile.v1';
+
+export function blankProfile() {
+  return {
+    teamName: '',
+    teamNumber: '',
+    members: Array.from({ length: MEMBER_SLOTS }, () => ''),
+    support: Array.from({ length: SUPPORT_SLOTS }, () => ''),
+    overview: '',
+    meetingDay: '',
+    meetingTime: '',
+    updatedAt: null
+  };
+}
+
+export function normalizeProfile(raw = {}) {
+  const meta = normalizeMeta(raw);
+  return {
+    teamName: meta.teamName,
+    teamNumber: meta.teamNumber,
+    members: meta.members,
+    support: meta.support,
+    overview: meta.overview,
+    meetingDay: meta.meetingDay,
+    meetingTime: meta.meetingTime,
+    updatedAt: raw.updatedAt || null
+  };
+}
+
+export function getProfile() {
+  try {
+    const raw = localStorage.getItem(PROFILE_KEY);
+    if (!raw) return blankProfile();
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return blankProfile();
+    return normalizeProfile(parsed);
+  } catch {
+    return blankProfile();
+  }
+}
+
+/** 設定済みかどうか（自動入力の初回実行判定用）。 */
+export function hasProfile() {
+  try {
+    return localStorage.getItem(PROFILE_KEY) != null;
+  } catch {
+    return false;
+  }
+}
+
+export function saveProfile(input) {
+  const next = normalizeProfile(input || {});
+  next.updatedAt = new Date().toISOString();
+  localStorage.setItem(PROFILE_KEY, JSON.stringify(next));
+  return next;
+}
+
+export function clearProfile() {
+  localStorage.removeItem(PROFILE_KEY);
+}
+
+/**
+ * ダッシュボードのチーム行（例「チーム: 10(未定)」）→ { number, name }。
+ * 形式が読めないときは全体をチーム名にする。
+ */
+export function parseTeamLine(line) {
+  const s = String(line || '').trim().replace(/^チーム[:：]\s*/, '').trim();
+  if (!s) return { number: '', name: '' };
+  let m = s.match(/^(\d+)\s*[\(（]\s*(.+?)\s*[\)）]$/);
+  if (m) return { number: m[1], name: m[2] };
+  m = s.match(/^(\d+)\s*[-：:－―]\s*(.+)$/);
+  if (m) return { number: m[1], name: m[2].trim() };
+  if (/^\d+$/.test(s)) return { number: s, name: '' };
+  return { number: '', name: s };
+}
+
+function isBlank(value) {
+  return String(value ?? '').trim() === '';
+}
+
+/**
+ * プロフィールの空欄だけを埋める。ユーザー入力は上書きしない。
+ * @returns {string[]} 埋めた項目名（表示用）
+ */
+export function fillProfileBlanks(profile, patch) {
+  const filled = [];
+  const p = profile || {};
+  const src = patch || {};
+  for (const key of ['teamName', 'teamNumber', 'overview', 'meetingDay', 'meetingTime']) {
+    if (isBlank(p[key]) && !isBlank(src[key])) {
+      p[key] = String(src[key]).trim();
+      filled.push(key);
+    }
+  }
+  const fillList = (key, values, labelBase) => {
+    const list = Array.isArray(p[key]) ? p[key].slice() : [];
+    while (list.length < (key === 'members' ? MEMBER_SLOTS : SUPPORT_SLOTS)) list.push('');
+    (values || []).forEach((v) => {
+      const text = String(v ?? '').trim();
+      if (!text) return;
+      if (list.some((e) => String(e || '').trim() === text)) return;
+      const idx = list.findIndex((e) => isBlank(e));
+      if (idx < 0) return;
+      list[idx] = text;
+      filled.push(`${labelBase}${idx + 1}`);
+    });
+    p[key] = list;
+  };
+  fillList('members', src.members, 'メンバー');
+  fillList('support', src.support, 'サポート');
+  return filled;
+}
+
+/** プロフィール → 新規下書き用の meta。 */
+export function profileToMeta(profile) {
+  const p = profile || blankProfile();
+  return normalizeMeta({
+    teamName: p.teamName,
+    teamNumber: p.teamNumber,
+    members: p.members,
+    support: p.support,
+    overview: p.overview,
+    meetingDay: p.meetingDay,
+    meetingTime: p.meetingTime
+  });
+}
+
+/**
+ * 下書きの空欄だけをプロフィールで埋める（既存下書きへの反映用）。
+ * @returns 埋めた項目数
+ */
+export function applyProfileToDoc(doc, profile) {
+  if (!doc) return 0;
+  const meta = doc.meta || (doc.meta = {});
+  const p = profile || {};
+  let n = 0;
+  for (const key of ['teamName', 'teamNumber', 'overview', 'meetingDay', 'meetingTime']) {
+    if (isBlank(meta[key]) && !isBlank(p[key])) {
+      meta[key] = String(p[key]).trim();
+      n += 1;
+    }
+  }
+  const mergeList = (key, length) => {
+    if (!Array.isArray(meta[key])) meta[key] = [];
+    (p[key] || []).forEach((v, i) => {
+      if (i >= length) return;
+      if (isBlank(meta[key][i]) && !isBlank(v)) {
+        meta[key][i] = String(v).trim();
+        n += 1;
+      }
+    });
+    while (meta[key].length < length) meta[key].push('');
+  };
+  mergeList('members', MEMBER_SLOTS);
+  mergeList('support', SUPPORT_SLOTS);
+  return n;
+}
+
+/** プロフィールが空っぽかどうか（初回ガイド用）。 */
+export function isProfileEmpty(profile) {
+  const p = profile || {};
+  return isBlank(p.teamName) && isBlank(p.teamNumber) && isBlank(p.overview)
+    && (p.members || []).every((m) => isBlank(m))
+    && (p.support || []).every((m) => isBlank(m));
+}
+
 /** 週ブロック → 元アプリ同期用フィールド。 */
 export function weekToFieldList(week, overview = '') {
   return [

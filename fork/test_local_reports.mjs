@@ -35,8 +35,10 @@ globalThis.fetch = async (url) => {
 };
 
 const {
-  clearLocalReports, createLocalReport, deleteLocalReport, documentTitle,
-  filledWeeks, listLocalReports, mergeLocalReports, saveLocalReport, WEEK_SLOTS
+  applyProfileToDoc, blankProfile, clearLocalReports, createLocalReport,
+  deleteLocalReport, documentTitle, filledWeeks, fillProfileBlanks, getProfile,
+  hasProfile,   isProfileEmpty, listLocalReports, mergeLocalReports, parseTeamLine,
+  profileToMeta, saveLocalReport, saveProfile, WEEK_SLOTS
 } = await import('./report-local.js');
 const { documentToWorkbookArray, roundTripDocument, workbookToDocument } =
   await import('./report-excel.js');
@@ -133,4 +135,48 @@ test('documentToWorkbookArray が xlsx バイナリを返す', async () => {
   assert.ok(arr.byteLength > 1000 || arr.length > 1000);
   const wb = XLSX.read(arr, { type: 'array' });
   assert.ok(wb.SheetNames.includes('テンプレート'));
+});
+
+test('チーム行のパース', () => {
+  assert.deepEqual(parseTeamLine('チーム: 10(未定)'), { number: '10', name: '未定' });
+  assert.deepEqual(parseTeamLine('チーム：01：RYKT'), { number: '01', name: 'RYKT' });
+  assert.deepEqual(parseTeamLine('チーム: 02-うめおにぎり'), { number: '02', name: 'うめおにぎり' });
+  assert.deepEqual(parseTeamLine('07'), { number: '07', name: '' });
+  assert.deepEqual(parseTeamLine(''), { number: '', name: '' });
+});
+
+test('プロフィールの保存と空欄埋めは入力を上書きしない', () => {
+  assert.equal(hasProfile(), false);
+  assert.equal(isProfileEmpty(blankProfile()), true);
+  saveProfile({ teamName: '自チーム', members: ['1年 A'] });
+  assert.equal(hasProfile(), true);
+  const p = getProfile();
+  assert.equal(p.teamName, '自チーム');
+  const filled = fillProfileBlanks(p, {
+    teamName: '上書きチーム', teamNumber: '03', members: ['1年 A', '1年 B']
+  });
+  assert.ok(!filled.includes('teamName'));
+  assert.ok(filled.includes('teamNumber'));
+  assert.ok(filled.includes('メンバー2'));
+  assert.equal(p.teamName, '自チーム');
+  assert.equal(p.members[1], '1年 B');
+});
+
+test('新規下書きはプロフィールの写しで始まる', () => {
+  saveProfile({ teamName: 'T', teamNumber: '9', members: ['1年 A'] });
+  const r = createLocalReport({ meta: profileToMeta(getProfile()) });
+  assert.equal(r.meta.teamName, 'T');
+  assert.equal(r.meta.members[0], '1年 A');
+  assert.equal(documentTitle(r), '9-T-週報');
+});
+
+test('プロフィールの既存下書きへの反映は空欄だけ', () => {
+  const r = createLocalReport({ meta: { teamName: '旧', overview: '' } });
+  const n = applyProfileToDoc(r, {
+    teamName: '新', teamNumber: '5', overview: '概要文', members: [], support: []
+  });
+  assert.equal(r.meta.teamName, '旧');
+  assert.equal(r.meta.teamNumber, '5');
+  assert.equal(r.meta.overview, '概要文');
+  assert.ok(n >= 2);
 });
