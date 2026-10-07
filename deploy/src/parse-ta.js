@@ -463,6 +463,73 @@ export function parseTaTeams(html) {
   };
 }
 
+/** `/ta/teams/:id` のチーム詳細。読み取り専用。
+ *
+ * 全ページの器（frame 断片ではない）。`text-2xl` の h1 がチーム名、
+ * `text-2xl font-bold` の値＋`text-sm text-gray-600` の語が 3 統計、
+ * h3 見出し（発注状況 / 貸出状況 / レポート）の下に `justify-between` の
+ * 語と値が並び、最後にメンバーの表がある。操作列（削除など）は
+ * 書き込み口が無いので取らない。項目名は HTML の語を素通しする。
+ */
+export function parseTaTeamDetail(html) {
+  const body = String(html || '');
+  const name = body.match(/<h1\b[^>]*class="[^"]*text-2xl[^"]*"[^>]*>([\s\S]*?)<\/h1>/i);
+  const editLink = body.match(/href="\/ta\/teams\/([^/"'?]+)\/edit"/);
+  const id = editLink ? parseIdToken(editLink[1]) : null;
+
+  const stats = [];
+  const statRe = /<div\b[^>]*class="[^"]*text-2xl font-bold[^"]*"[^>]*>([\s\S]*?)<\/div>\s*<div\b[^>]*class="[^"]*text-sm text-gray-600[^"]*"[^>]*>([\s\S]*?)<\/div>/gi;
+  let sm;
+  while ((sm = statRe.exec(body))) {
+    const value = text(sm[1]);
+    const label = text(sm[2]);
+    if (label && value) stats.push({ label, value });
+  }
+
+  // h3 節ごとに `語: 値` を束ねる（保留中は発注と貸出で別物）。
+  const sections = [];
+  const headRe = /<h3\b[^>]*>([\s\S]*?)<\/h3>/gi;
+  const heads = [...body.matchAll(headRe)];
+  const pairRe = /<span\b[^>]*class="[^"]*text-sm text-gray-600[^"]*"[^>]*>([^<>]*?):<\/span>\s*<span\b[^>]*>([^<>]*?)<\/span>/gi;
+  for (let i = 0; i < heads.length; i++) {
+    const title = text(heads[i][1]);
+    if (!title || /チームメンバー/.test(title)) continue;
+    const from = heads[i].index + heads[i][0].length;
+    const to = i + 1 < heads.length ? heads[i + 1].index : body.length;
+    const slice = body.slice(from, to);
+    const items = [...slice.matchAll(pairRe)]
+      .map((m) => [text(m[1]), text(m[2])])
+      .filter(([k, v]) => k && v);
+    if (items.length) sections.push({ title, items });
+  }
+
+  const members = [];
+  const tbody = body.match(/<tbody\b[^>]*>([\s\S]*?)<\/tbody>/i);
+  if (tbody) {
+    const trRe = /<tr\b[^>]*>([\s\S]*?)<\/tr>/gi;
+    let tr;
+    while ((tr = trRe.exec(tbody[1]))) {
+      const cells = [...tr[1].matchAll(/<td\b[^>]*>([\s\S]*?)<\/td>/gi)]
+        .map((m) => text(m[1]));
+      if (cells.length < 4 || !cells[0]) continue;
+      members.push({
+        name: cells[0],
+        email: cells[1] || null,
+        role: cells[2] || null,
+        status: cells[3] || null
+      });
+    }
+  }
+
+  return {
+    id,
+    name: name ? text(name[1]) : '',
+    stats,
+    sections,
+    members
+  };
+}
+
 /** `/ta/users`。アバター頭文字は名前に混ぜない。 */
 export function parseTaUsers(html) {
   const body = main(html);

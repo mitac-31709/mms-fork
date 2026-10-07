@@ -12,7 +12,7 @@ import { test } from 'node:test';
 
 import {
   parseTaDashboard, parseTaOrderDetail, parseTaOrders, parseTaReportDetail, parseTaReports,
-  parseTaTeams, parseTaUsers, parseUserWithMode, parseViewMode
+  parseTaTeamDetail, parseTaTeams, parseTaUsers, parseUserWithMode, parseViewMode
 } from '../src/parse-ta.js';
 
 const live = (name) => {
@@ -146,6 +146,51 @@ test('チームの人数を数値にできる。読めなければ null', () => 
   assert.equal(parsed.teams[0].membersValue, 10);
   assert.equal(parsed.teams[1].membersValue, 4);
   assert.equal(parsed.teams[2].membersValue, null);
+});
+
+const teamDetailHtml = live('ta_team_detail.html');
+if (teamDetailHtml) {
+  test('実 HTML からチーム詳細を取れる', () => {
+    const d = parseTaTeamDetail(teamDetailHtml);
+    assert.match(String(d.id), /^[0-9a-f-]{36}$/i);
+    assert.ok(d.name);
+    assert.ok(d.stats.length >= 3);
+    assert.ok(d.stats.some((s) => s.label === '総メンバー数'));
+    assert.ok(d.sections.some((s) => s.title === '発注状況'));
+    assert.ok(d.members.length >= 1);
+    assert.ok(d.members[0].name);
+    assert.ok(d.members[0].email?.includes('@'));
+  });
+}
+
+test('合成したチーム詳細から統計・節・メンバーを取れる', () => {
+  const html = `
+    <main>
+      <h1 class="text-2xl font-bold">01: RYKT</h1>
+      <a href="/ta/teams/d1111111-1111-4111-8111-111111111111/edit">編集</a>
+      <div class="text-2xl font-bold">5</div>
+      <div class="text-sm text-gray-600">総メンバー数</div>
+      <div class="text-2xl font-bold">¥838</div>
+      <div class="text-sm text-gray-600">総支出</div>
+      <h3 class="font-semibold">発注状況</h3>
+      <span class="text-sm text-gray-600">総発注数:</span>
+      <span class="text-sm font-medium">23</span>
+      <h3 class="text-lg font-semibold">チームメンバー</h3>
+      <table><tbody>
+        <tr><td>山田 太郎</td><td>y@example.com</td><td>Member</td><td>アクティブ</td><td>削除</td></tr>
+      </tbody></table>
+    </main>`;
+  const d = parseTaTeamDetail(html);
+  assert.equal(d.id, 'd1111111-1111-4111-8111-111111111111');
+  assert.equal(d.name, '01: RYKT');
+  assert.deepEqual(d.stats, [
+    { label: '総メンバー数', value: '5' },
+    { label: '総支出', value: '¥838' }
+  ]);
+  assert.deepEqual(d.sections, [{ title: '発注状況', items: [['総発注数', '23']] }]);
+  assert.deepEqual(d.members, [{
+    name: '山田 太郎', email: 'y@example.com', role: 'Member', status: 'アクティブ'
+  }]);
 });
 
 const usersHtml = live('live_ta_users.html');

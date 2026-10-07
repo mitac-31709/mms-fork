@@ -47,7 +47,7 @@ import {
 } from './parse-pages.js';
 import {
   parseTaDashboard, parseTaOrderDetail, parseTaOrders, parseTaReportDetail, parseTaReports,
-  parseTaTeams, parseTaUsers
+  parseTaTeamDetail, parseTaTeams, parseTaUsers
 } from './parse-ta.js';
 import { buildParseAlertPayload, inspectParse } from './parse-guard.js';
 import {
@@ -726,6 +726,18 @@ async function handleApi(request, url, env, ctx) {
     const refresh = url.searchParams.get('refresh') === '1';
     return json(await page(
       session.cookie, originPath, parseTaReportDetail, env, ctx, { refresh }
+    ));
+  }
+
+  // TA チームの詳細。読み取り専用（統計・発注や貸出の状況・メンバー）。
+  const taTeamDetail = path.match(/^\/api\/ta\/teams\/([^/]+)$/);
+  if (taTeamDetail && request.method === 'GET') {
+    const id = parseIdToken(taTeamDetail[1]);
+    if (id == null) return json({ error: 'そのような口はありません' }, 404);
+    const originPath = `/ta/teams/${id}`;
+    const refresh = url.searchParams.get('refresh') === '1';
+    return json(await page(
+      session.cookie, originPath, parseTaTeamDetail, env, ctx, { refresh }
     ));
   }
 

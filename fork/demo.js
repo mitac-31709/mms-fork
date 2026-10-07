@@ -578,6 +578,35 @@ export function demoTaTeams(opts = {}) {
   return cached('ta-teams', buildTaTeams, opts);
 }
 
+/** デモのチーム詳細。一覧の行に統計とメンバー見本を足す。 */
+export async function demoTaTeam(id, opts = {}) {
+  const data = await demoTaTeams(opts);
+  const t = (data.teams || []).find((x) => String(x.id) === String(id));
+  if (!t) throw new Error('チームが見つかりません');
+  const n = typeof t.membersValue === 'number' ? t.membersValue : 0;
+  return {
+    source: data.source,
+    fetchedAt: data.fetchedAt,
+    id: t.id,
+    name: t.name,
+    stats: [
+      { label: '総メンバー数', value: String(n) },
+      { label: 'アクティブメンバー', value: String(n) },
+      { label: '総支出', value: t.spend || '—' }
+    ],
+    sections: [
+      { title: '発注状況', items: [['総発注数', '—'], ['保留中', '—']] },
+      { title: '貸出状況', items: [['貸出申請数', '—'], ['保留中', '—']] }
+    ],
+    members: Array.from({ length: n }, (_, i) => ({
+      name: `デモ メンバー${i + 1}`,
+      email: `demo${i + 1}@example.invalid`,
+      role: 'Member',
+      status: 'アクティブ'
+    }))
+  };
+}
+
 function buildTaUsers() {
   return {
     heading: 'ユーザー一覧 (TA)',

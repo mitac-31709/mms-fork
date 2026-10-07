@@ -51,6 +51,10 @@ export const PAGE_EXPECTATIONS = {
   '/ta/orders/:id': {
     kind: 'ta-order-detail'
   },
+  // TA チームの詳細 `/ta/teams/:id`。直接開くと全ページの器。
+  '/ta/teams/:id': {
+    kind: 'ta-team-detail'
+  },
   '/ta': {
     kind: 'dashboard',
     heading: 'TAダッシュボード'
@@ -98,6 +102,9 @@ export function expectationPath(path) {
   }
   if (/^\/ta\/reports\/(?:\d+|[0-9a-f-]{36})$/i.test(bare)) {
     return '/ta/reports/:id';
+  }
+  if (/^\/ta\/teams\/(?:\d+|[0-9a-f-]{36})$/i.test(bare)) {
+    return '/ta/teams/:id';
   }
   return bare;
 }
@@ -160,6 +167,9 @@ export function inspectParse(path, html, parsed) {
       break;
     case 'ta-report-detail':
       inspectTaReportDetail(html, parsed, reasons);
+      break;
+    case 'ta-team-detail':
+      inspectTaTeamDetail(html, parsed, reasons);
       break;
     case 'order-detail':
       inspectOrderDetail(html, parsed, reasons);
@@ -261,6 +271,20 @@ function inspectTaReportDetail(html, parsed, reasons) {
     reasons.push('本文項目（fields）が取れない');
   }
 }
+/** TA チームの詳細。チーム名は必須、メンバーは配列であること。 */
+function inspectTaTeamDetail(html, parsed, reasons) {
+  if (!parsed || typeof parsed !== 'object') {
+    reasons.push('パース結果がオブジェクトではない');
+    return;
+  }
+  if (!String(parsed.name || '').trim()) {
+    reasons.push('チーム名が取れない');
+  }
+  if (!Array.isArray(parsed.members)) {
+    reasons.push('members が配列ではない');
+  }
+}
+
 /** 学生の注文詳細。商品名は必須、履歴は配列であること。 */
 function inspectOrderDetail(html, parsed, reasons) {
   if (!parsed || typeof parsed !== 'object') {

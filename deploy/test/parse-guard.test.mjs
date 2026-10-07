@@ -10,7 +10,9 @@ import { parseReportsPage, parseReportDetail } from '../src/parse.js';
 import {
   parseDashboard, parseEquipments, parseLoans, parseNotifications, parseOrderDetail, parseOrders
 } from '../src/parse-pages.js';
-import { parseTaOrderDetail, parseTaReportDetail } from '../src/parse-ta.js';
+import {
+  parseTaOrderDetail, parseTaReportDetail, parseTaTeamDetail
+} from '../src/parse-ta.js';
 import {
   buildParseAlertPayload, expectationPath, htmlSnippet, inspectParse
 } from '../src/parse-guard.js';
@@ -189,6 +191,35 @@ describe('inspectParse · TA 週報の詳細 `/ta/reports/:id`', () => {
     const r = inspectParse(path, broken, parseTaReportDetail(broken));
     assert.equal(r.ok, false);
     assert.match(r.reasons.join('\n'), /タイトル/);
+  });
+});
+
+describe('inspectParse · TA チームの詳細 `/ta/teams/:id`', () => {
+  const path = '/ta/teams/02d44fe8-be08-4e02-a2d8-35b18c7c5b47';
+  const fragment = `
+<main>
+<h1 class="text-2xl font-bold">02: うめおにぎり</h1>
+<div class="text-2xl font-bold">4</div>
+<div class="text-sm text-gray-600">総メンバー数</div>
+<table><tbody>
+<tr><td>山田 太郎</td><td>y@example.com</td><td>Member</td><td>アクティブ</td></tr>
+</tbody></table>
+</main>`;
+
+  test('詳細パスは TA チーム詳細の想定に寄せる', () => {
+    assert.equal(expectationPath(path), '/ta/teams/:id');
+  });
+
+  test('チーム名とメンバーがある詳細は正常', () => {
+    const r = inspectParse(path, fragment, parseTaTeamDetail(fragment));
+    assert.equal(r.ok, true, r.reasons.join('; '));
+  });
+
+  test('チーム名が取れない詳細は理由を返す', () => {
+    const broken = fragment.replace(/<h1 class="text-2xl[^]*?<\/h1>/, '');
+    const r = inspectParse(path, broken, parseTaTeamDetail(broken));
+    assert.equal(r.ok, false);
+    assert.match(r.reasons.join('\n'), /チーム名/);
   });
 });
 

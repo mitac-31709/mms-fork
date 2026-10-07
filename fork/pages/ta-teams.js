@@ -1,9 +1,9 @@
 /* TA チーム一覧。読み取り専用。 */
 
 import { api } from '../api.js';
-import { demoTaTeams } from '../demo.js';
+import { demoTaTeam, demoTaTeams } from '../demo.js';
 import { fmtYen } from '../format.js';
-import { dataTable, emptyBlock, h } from '../ui.js';
+import { dataTable, emptyBlock, h, metaList, panel } from '../ui.js';
 
 export const meta = {
   route: '/ta/teams',
@@ -13,7 +13,24 @@ export const meta = {
 };
 
 const SORT_KEYS = ['name', 'membersValue', 'spendValue'];
-const state = { q: '', sortKey: 'name', sortDir: 'asc' };
+const state = { q: '', sortKey: 'name', sortDir: 'asc', selectedId: null };
+
+function sameId(a, b) {
+  if (a == null || b == null) return false;
+  return String(a) === String(b);
+}
+
+function parseTeamQueryId(raw) {
+  if (!raw) return null;
+  if (/^\d+$/.test(raw)) {
+    const n = Number(raw);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(raw)) {
+    return raw.toLowerCase();
+  }
+  return null;
+}
 
 /** 人数は「5 人」の文言のまま比べると 10 人が 4 人より前に来る。数値で比べる。 */
 const numeric = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
@@ -40,6 +57,7 @@ export function render(data, ctx) {
   const key = p.get('sort_by');
   if (SORT_KEYS.includes(key)) state.sortKey = key;
   state.sortDir = p.get('sort_direction') === 'desc' ? 'desc' : 'asc';
+  state.selectedId = parseTeamQueryId(p.get('team_id'));
 
   const listHost = h('div', { class: 'list' });
   const countEl = h('p', { class: 'toolbar__count', role: 'status' });
@@ -78,6 +96,7 @@ export function render(data, ctx) {
     listHost);
 
   paint();
+  if (state.selectedId != null) openDetail(state.selectedId, { focus: false });
   return page;
 
   function syncUrl() {
@@ -85,6 +104,7 @@ export function render(data, ctx) {
     if (state.q.trim()) params.set('q', state.q.trim());
     params.set('sort_by', state.sortKey);
     params.set('sort_direction', state.sortDir);
+    if (state.selectedId != null) params.set('team_id', state.selectedId);
     if (ctx.demo) params.set('demo', '1');
     history.replaceState(null, '', `${location.pathname}?${params}`);
   }
@@ -141,6 +161,8 @@ export function render(data, ctx) {
       rows: list.map((t) => ({
         id: t.id || t.name,
         idPrefix: 'team',
+        selected: sameId(t.id || t.name, state.selectedId),
+        onOpen: (id) => openDetail(id),
         cells: [
           { label: 'チーム', value: t.name },
           { label: '人数', value: t.members || '—' },
@@ -152,5 +174,77 @@ export function render(data, ctx) {
     countEl.textContent = state.q
       ? `${list.length} / ${rows.length} 件`
       : `${rows.length} 件`;
+  }
+
+  // ── 詳細。TA は読むだけ（書き込み口は元アプリにも無い） ──
+  function sectionList(title, pairs) {
+    const items = (pairs || []).filter((p) => p && (p[0] || p[1]));
+    if (!items.length) return null;
+    return h('div', { class: 'field' },
+      h('p', { class: 'field__label', text: title }),
+      metaList(items.map(([k, v]) => [k, v || '—'])));
+  }
+
+  async function openDetail(id, { focus = true } = {}) {
+    const t = rows.find((x) => sameId(x.id, id) || sameId(x.id || x.name, id));
+    if (!t) return;
+
+    state.selectedId = id;
+    paint();
+    syncUrl();
+
+    const bodyHost = h('div', { class: 'loading', text: '詳細を読み込み中…' });
+    panel.open({
+      eyebrow: 'TAチーム',
+      title: t.name,
+      body: bodyHost,
+      actions: [
+        h('button', {
+          class: 'btn btn--secondary', type: 'button',
+          onclick: () => panel.close()
+        }, '閉じる')
+      ],
+      onClose: () => {
+        state.selectedId = null;
+        paint();
+        syncUrl();
+        return listHost.querySelector(`#team_${CSS.escape(String(id))} .row__open`);
+      }
+    });
+
+    try {
+      if (t.id == null) throw new Error('詳細がありません');
+      const detail = ctx.demo ? await demoTaTeam(t.id) : await api.taTeam(t.id);
+      if (!sameId(state.selectedId, id)) return;
+      const stats = (detail.stats || []).map((s) => [s.label, s.value]);
+      const sections = (detail.sections || [])
+        .map((s) => sectionList(s.title, s.items));
+      const members = (detail.members || []).filter((m) => m && m.name);
+      const memberBlock = members.length
+        ? h('div', { class: 'field' },
+          h('p', { class: 'field__label', text: `チームメンバー（${members.length}）` }),
+          ...members.map((m) => metaList([
+            ['名前', m.name || '—'],
+            ['メール', m.email || '—'],
+            ['役割', m.role || '—'],
+            ['ステータス', m.status || '—']
+          ])))
+        : null;
+      bodyHost.replaceWith(...[
+        metaList([['チーム', detail.name || t.name || '—'], ...stats]),
+        ...sections,
+        memberBlock
+      ].filter(Boolean));
+    } catch (e) {
+      bodyHost.replaceWith(metaList([
+        ['チーム', t.name || '—'],
+        ['人数', t.members || '—'],
+        ['使用額', t.spendText],
+        ['招待', t.pendingInvites || '—'],
+        ['詳細', e.message || '取得できませんでした']
+      ]));
+    }
+
+    if (!focus) document.activeElement?.blur?.();
   }
 }

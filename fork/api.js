@@ -100,6 +100,8 @@ export const api = {
   /** TA 週報の詳細（読み取り専用）。元アプリの `/ta/reports/:id` を読む。 */
   taReport: (id, opts) => request(`/api/ta/reports/${encodeURIComponent(id)}`, opts),
   taTeams: (opts) => request('/api/ta/teams', opts),
+  /** TA チームの詳細（読み取り専用）。元アプリの `/ta/teams/:id` を読む。 */
+  taTeam: (id, opts) => request(`/api/ta/teams/${encodeURIComponent(id)}`, opts),
   taUsers: (opts) => request('/api/ta/users', opts),
 
   /** Discord Incoming Webhook へ Worker 経由で送る。即時中継（URL は残さない）。 */
