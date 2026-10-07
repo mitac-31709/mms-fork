@@ -8,10 +8,13 @@ import { describe, test } from 'node:test';
 
 import { parseReportsPage, parseReportDetail } from '../src/parse.js';
 import {
-  parseDashboard, parseEquipments, parseLoans, parseNotifications, parseOrders
+  parseDashboard, parseEquipments, parseLoans, parseNotifications, parseOrderDetail, parseOrders
 } from '../src/parse-pages.js';
 import {
-  buildParseAlertPayload, htmlSnippet, inspectParse
+  parseTaOrderDetail, parseTaReportDetail, parseTaTeamDetail
+} from '../src/parse-ta.js';
+import {
+  buildParseAlertPayload, expectationPath, htmlSnippet, inspectParse
 } from '../src/parse-guard.js';
 import { parseFormErrors } from '../src/meister.js';
 
@@ -87,6 +90,136 @@ describe('inspectParse · 週報詳細', () => {
     const r = inspectParse('/reports/114', detail, parsed);
     assert.equal(r.ok, false);
     assert.match(r.reasons.join('\n'), /content/);
+  });
+});
+
+describe('inspectParse · TA 注文詳細（Turbo Frame の断片）', () => {
+  const path = '/ta/orders/530743d1-cf3d-44cc-a4d1-a1833b138aa6/details';
+  const fragment = `
+<turbo-frame id="side_panel"> <div class="h-full overflow-y-auto bg-white">
+<div class="p-6 space-y-6"> <div class="flex justify-between items-center border-b border-gray-200 pb-4">
+<h2 class="text-xl font-bold text-gray-900">注文詳細</h2> </div>
+<div class="bg-gradient-to-br from-blue-50 to-purple-50 rounded-2xl p-6 pb-4 mb-6">
+<div class="flex items-start justify-between mb-4"> <div>
+<h2 class="text-2xl font-bold">アルミ丸棒 φ20</h2>
+<span class="rounded-full">注文済み</span>
+<a href="/ta/orders/530743d1-cf3d-44cc-a4d1-a1833b138aa6/edit">編集</a>
+</div> </div> </div>
+<div><label>単価</label><p>¥1,480</p></div>
+<div><label>ショップ名</label><p>モノタロウ</p></div>
+</div> </div>
+</turbo-frame>`;
+
+  test('details パスは注文詳細の想定に寄せる', () => {
+    assert.equal(expectationPath(path), '/ta/orders/:id');
+  });
+
+  test('<main>/<body> の無い断片は正常', () => {
+    const r = inspectParse(path, fragment, parseTaOrderDetail(fragment));
+    assert.equal(r.ok, true, r.reasons.join('; '));
+  });
+
+  test('商品名が取れない断片は理由を返す', () => {
+    const broken = fragment.replace(/<h2 class="text-2xl[^]*?<\/h2>/, '');
+    const r = inspectParse(path, broken, parseTaOrderDetail(broken));
+    assert.equal(r.ok, false);
+    assert.match(r.reasons.join('\n'), /商品名/);
+  });
+
+  test('frame 自体が無い断片は器が無いとみなす', () => {
+    const bare = '<div><p>ただの断片</p></div>'.repeat(20);
+    const r = inspectParse(path, bare, parseTaOrderDetail(bare));
+    assert.equal(r.ok, false);
+    assert.match(r.reasons.join('\n'), /<main> も <body> も無い/);
+  });
+});
+
+describe('inspectParse · 学生の注文詳細 `/orders/:id`', () => {
+  const path = '/orders/3';
+  const fragment = `
+<turbo-frame id="side_panel">
+<h2 class="text-2xl font-bold">アルミ丸棒</h2>
+<span class="rounded-full">保留中</span>
+<h3>注文ステータス履歴</h3>
+<div class="ml-4 flex-1"><p>注文作成</p><p>2026/10/01 16:19</p></div>
+</turbo-frame>`;
+
+  test('数値 id は注文詳細の想定に寄せる', () => {
+    assert.equal(expectationPath(path), '/orders/:id');
+  });
+
+  test('商品と履歴のある詳細は正常', () => {
+    const r = inspectParse(path, fragment, parseOrderDetail(fragment));
+    assert.equal(r.ok, true, r.reasons.join('; '));
+  });
+
+  test('商品名が取れない詳細は理由を返す', () => {
+    const broken = fragment.replace(/<h2 class="text-2xl[^]*?<\/h2>/, '');
+    const r = inspectParse(path, broken, parseOrderDetail(broken));
+    assert.equal(r.ok, false);
+    assert.match(r.reasons.join('\n'), /商品名/);
+  });
+});
+
+describe('inspectParse · TA 週報の詳細 `/ta/reports/:id`', () => {
+  const path = '/ta/reports/0343f7fd-6743-474b-8eb0-c704adee8b54';
+  const fragment = `
+<turbo-frame id="side_panel">
+<div class="bg-gradient-to-br rounded-2xl p-6">
+<h2 class="text-2xl font-bold">第15週 週報</h2>
+<span class="rounded-xl shadow-lg whitespace-nowrap">
+<div class="w-2 h-2 rounded-full"></div>
+完了
+</span>
+<div class="rounded-lg whitespace-nowrap"><span>01: RYKT</span></div>
+</div>
+<span class="font-medium">概要</span>
+<div class="text-sm">概要文</div>
+</turbo-frame>`;
+
+  test('詳細パスは TA 週報詳細の想定に寄せる', () => {
+    assert.equal(expectationPath(path), '/ta/reports/:id');
+  });
+
+  test('タイトルと本文のある詳細は正常', () => {
+    const r = inspectParse(path, fragment, parseTaReportDetail(fragment));
+    assert.equal(r.ok, true, r.reasons.join('; '));
+  });
+
+  test('タイトルが取れない詳細は理由を返す', () => {
+    const broken = fragment.replace(/<h2 class="text-2xl[^]*?<\/h2>/, '');
+    const r = inspectParse(path, broken, parseTaReportDetail(broken));
+    assert.equal(r.ok, false);
+    assert.match(r.reasons.join('\n'), /タイトル/);
+  });
+});
+
+describe('inspectParse · TA チームの詳細 `/ta/teams/:id`', () => {
+  const path = '/ta/teams/02d44fe8-be08-4e02-a2d8-35b18c7c5b47';
+  const fragment = `
+<main>
+<h1 class="text-2xl font-bold">02: うめおにぎり</h1>
+<div class="text-2xl font-bold">4</div>
+<div class="text-sm text-gray-600">総メンバー数</div>
+<table><tbody>
+<tr><td>山田 太郎</td><td>y@example.com</td><td>Member</td><td>アクティブ</td></tr>
+</tbody></table>
+</main>`;
+
+  test('詳細パスは TA チーム詳細の想定に寄せる', () => {
+    assert.equal(expectationPath(path), '/ta/teams/:id');
+  });
+
+  test('チーム名とメンバーがある詳細は正常', () => {
+    const r = inspectParse(path, fragment, parseTaTeamDetail(fragment));
+    assert.equal(r.ok, true, r.reasons.join('; '));
+  });
+
+  test('チーム名が取れない詳細は理由を返す', () => {
+    const broken = fragment.replace(/<h1 class="text-2xl[^]*?<\/h1>/, '');
+    const r = inspectParse(path, broken, parseTaTeamDetail(broken));
+    assert.equal(r.ok, false);
+    assert.match(r.reasons.join('\n'), /チーム名/);
   });
 });
 
