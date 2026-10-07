@@ -38,21 +38,22 @@ import * as taTeams from './pages/ta-teams.js';
 import * as taUsers from './pages/ta-users.js';
 
 const STUDENT_PAGES = [
-  dashboard, orders, equipments, loans, reports, localReports, notifications
+  dashboard, reports, orders, equipments, loans, notifications
 ];
+// 旧 /local-reports は /reports?tab=local への転送専用。ナビには出さない。
+const STUDENT_PAGES_WITH_REDIRECT = [...STUDENT_PAGES, localReports];
 const TA_PAGES = [taDashboard, taOrders, taReports, taTeams, taUsers];
-const PAGES = [...STUDENT_PAGES, ...TA_PAGES];
+const PAGES = [...STUDENT_PAGES_WITH_REDIRECT, ...TA_PAGES];
 const BY_ROUTE = new Map(PAGES.map((p) => [p.meta.route, p]));
 const STUDENT_ROUTES = STUDENT_PAGES.map((p) => p.meta.route);
 const TA_ROUTES = TA_PAGES.map((p) => p.meta.route);
 
 const STUDENT_NAV = [
   ['/dashboard', 'ダッシュボード'],
+  ['/reports', '週報'],
   ['/orders', '注文'],
   ['/equipments', '機材'],
-  ['/loans', '貸出'],
-  ['/reports', '週報'],
-  ['/local-reports', 'ローカル週報']
+  ['/loans', '貸出']
 ];
 const TA_NAV = [
   ['/ta', 'TAホーム'],
