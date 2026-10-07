@@ -180,3 +180,23 @@ test('プロフィールの既存下書きへの反映は空欄だけ', () => {
   assert.equal(r.meta.overview, '概要文');
   assert.ok(n >= 2);
 });
+
+test('ファイル名はテンプレート通り', async () => {
+  const { documentFilename } = await import('./report-excel.js');
+  assert.equal(
+    documentFilename({ meta: { teamNumber: '01', teamName: 'RYKT' } }),
+    '01-RYKT-週報.xlsx'
+  );
+  assert.equal(
+    documentFilename({ meta: { teamNumber: '', teamName: '' } }),
+    '[チーム番号]-[チーム名]-週報.xlsx'
+  );
+  assert.equal(
+    documentFilename({ meta: { teamNumber: '02', teamName: '' } }),
+    '02-[チーム名]-週報.xlsx'
+  );
+  assert.equal(
+    documentFilename({ meta: { teamNumber: 'a/b', teamName: 'x:y' } }),
+    'a_b-x_y-週報.xlsx'
+  );
+});

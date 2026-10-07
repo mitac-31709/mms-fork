@@ -5,7 +5,7 @@
  */
 
 import {
-  WEEK_SLOTS, documentTitle, normalizeLocal, MEMBER_SLOTS, SUPPORT_SLOTS
+  WEEK_SLOTS, normalizeLocal, MEMBER_SLOTS, SUPPORT_SLOTS
 } from './report-local.js';
 
 const TEMPLATE_URL = new URL('./assets/weekly-report-template.xlsx', import.meta.url);
@@ -288,18 +288,24 @@ function downloadBlob(blob, filename) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-function stamp() {
-  const d = new Date();
-  const p = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}`;
-}
-
 function safeFilename(name) {
   return String(name || '週報')
     .replace(/[\\/:*?"<>|]/g, '_')
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 80);
+}
+
+/**
+ * テンプレート通りのファイル名 `[チーム番号]-[チーム名]-週報.xlsx`。
+ * 未設定の欄はプレースホルダのまま残す（後から埋められるように）。
+ */
+export function documentFilename(doc) {
+  const num = String(doc?.meta?.teamNumber || '').trim();
+  const name = String(doc?.meta?.teamName || '').trim();
+  const numPart = num || '[チーム番号]';
+  const namePart = name || '[チーム名]';
+  return `${safeFilename(`${numPart}-${namePart}-週報`)}.xlsx`;
 }
 
 /**
@@ -312,7 +318,7 @@ export async function exportReportsExcel(reports) {
   if (!doc) throw new Error('書き出す週報がありません');
 
   const data = await documentToWorkbookArray(doc);
-  const filename = `${safeFilename(documentTitle(doc)) || `mms-weekly-${stamp()}`}.xlsx`;
+  const filename = documentFilename(doc);
   downloadBlob(
     new Blob([data], {
       type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
