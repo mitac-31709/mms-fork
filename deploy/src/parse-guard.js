@@ -65,6 +65,10 @@ export const PAGE_EXPECTATIONS = {
     columns: ['チーム', 'タイトル', '期間', 'ステータス', '期限'],
     itemsKey: 'reports'
   },
+  // TA 週報の詳細 `/ta/reports/:id`。直接開くと全ページ、frame 断片のこともある。
+  '/ta/reports/:id': {
+    kind: 'ta-report-detail'
+  },
   '/ta/teams': {
     kind: 'list',
     heading: 'チーム管理',
@@ -91,6 +95,9 @@ export function expectationPath(path) {
   }
   if (/^\/ta\/orders\/(?:\d+|[0-9a-f-]{36})\/details$/i.test(bare)) {
     return '/ta/orders/:id';
+  }
+  if (/^\/ta\/reports\/(?:\d+|[0-9a-f-]{36})$/i.test(bare)) {
+    return '/ta/reports/:id';
   }
   return bare;
 }
@@ -150,6 +157,9 @@ export function inspectParse(path, html, parsed) {
       break;
     case 'ta-order-detail':
       inspectTaOrderDetail(html, parsed, reasons);
+      break;
+    case 'ta-report-detail':
+      inspectTaReportDetail(html, parsed, reasons);
       break;
     case 'order-detail':
       inspectOrderDetail(html, parsed, reasons);
@@ -238,6 +248,19 @@ function inspectTaOrderDetail(html, parsed, reasons) {
   }
 }
 
+/** TA 週報の詳細。タイトルと本文項目（fields）は必須。 */
+function inspectTaReportDetail(html, parsed, reasons) {
+  if (!parsed || typeof parsed !== 'object') {
+    reasons.push('パース結果がオブジェクトではない');
+    return;
+  }
+  if (!String(parsed.title || '').trim()) {
+    reasons.push('週報のタイトルが取れない');
+  }
+  if (!parsed.fields || typeof parsed.fields !== 'object') {
+    reasons.push('本文項目（fields）が取れない');
+  }
+}
 /** 学生の注文詳細。商品名は必須、履歴は配列であること。 */
 function inspectOrderDetail(html, parsed, reasons) {
   if (!parsed || typeof parsed !== 'object') {

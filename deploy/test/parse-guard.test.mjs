@@ -10,7 +10,7 @@ import { parseReportsPage, parseReportDetail } from '../src/parse.js';
 import {
   parseDashboard, parseEquipments, parseLoans, parseNotifications, parseOrderDetail, parseOrders
 } from '../src/parse-pages.js';
-import { parseTaOrderDetail } from '../src/parse-ta.js';
+import { parseTaOrderDetail, parseTaReportDetail } from '../src/parse-ta.js';
 import {
   buildParseAlertPayload, expectationPath, htmlSnippet, inspectParse
 } from '../src/parse-guard.js';
@@ -156,6 +156,39 @@ describe('inspectParse · 学生の注文詳細 `/orders/:id`', () => {
     const r = inspectParse(path, broken, parseOrderDetail(broken));
     assert.equal(r.ok, false);
     assert.match(r.reasons.join('\n'), /商品名/);
+  });
+});
+
+describe('inspectParse · TA 週報の詳細 `/ta/reports/:id`', () => {
+  const path = '/ta/reports/0343f7fd-6743-474b-8eb0-c704adee8b54';
+  const fragment = `
+<turbo-frame id="side_panel">
+<div class="bg-gradient-to-br rounded-2xl p-6">
+<h2 class="text-2xl font-bold">第15週 週報</h2>
+<span class="rounded-xl shadow-lg whitespace-nowrap">
+<div class="w-2 h-2 rounded-full"></div>
+完了
+</span>
+<div class="rounded-lg whitespace-nowrap"><span>01: RYKT</span></div>
+</div>
+<span class="font-medium">概要</span>
+<div class="text-sm">概要文</div>
+</turbo-frame>`;
+
+  test('詳細パスは TA 週報詳細の想定に寄せる', () => {
+    assert.equal(expectationPath(path), '/ta/reports/:id');
+  });
+
+  test('タイトルと本文のある詳細は正常', () => {
+    const r = inspectParse(path, fragment, parseTaReportDetail(fragment));
+    assert.equal(r.ok, true, r.reasons.join('; '));
+  });
+
+  test('タイトルが取れない詳細は理由を返す', () => {
+    const broken = fragment.replace(/<h2 class="text-2xl[^]*?<\/h2>/, '');
+    const r = inspectParse(path, broken, parseTaReportDetail(broken));
+    assert.equal(r.ok, false);
+    assert.match(r.reasons.join('\n'), /タイトル/);
   });
 });
 

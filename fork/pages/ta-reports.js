@@ -1,9 +1,9 @@
 /* TA 週報一覧。締切（submission）カードで対象を選び、チーム列付きの表を出す。 */
 
 import { api } from '../api.js';
-import { DEMO_TODAY, demoTaReports } from '../demo.js';
+import { DEMO_TODAY, demoTaReport, demoTaReports } from '../demo.js';
 import { fmtDate } from '../format.js';
-import { dataTable, dueCell, emptyBlock, h, statusPill } from '../ui.js';
+import { dataTable, dueCell, emptyBlock, h, metaList, panel, statusPill } from '../ui.js';
 
 export const meta = {
   route: '/ta/reports',
@@ -16,12 +16,24 @@ const SORT_KEYS = ['team', 'title', 'status', 'due'];
 const state = {
   q: '', status: 'all', team: 'all',
   sortKey: 'due', sortDir: 'asc',
-  submissionId: null
+  submissionId: null, selectedId: null
 };
 
 function sameId(a, b) {
   if (a == null || b == null) return false;
   return String(a) === String(b);
+}
+
+function parseReportQueryId(raw) {
+  if (!raw) return null;
+  if (/^\d+$/.test(raw)) {
+    const n = Number(raw);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(raw)) {
+    return raw.toLowerCase();
+  }
+  return null;
 }
 
 export async function load(ctx, opts = {}) {
@@ -60,6 +72,7 @@ export function render(data, ctx) {
 
   paintSubs();
   paint();
+  if (state.selectedId != null) openDetail(state.selectedId, { focus: false });
   return page;
 
   function normalize(r) {
@@ -83,11 +96,13 @@ export function render(data, ctx) {
     if (SORT_KEYS.includes(key)) state.sortKey = key;
     state.sortDir = p.get('sort_direction') === 'desc' ? 'desc' : 'asc';
     state.submissionId = p.get('submission_id') || null;
+    state.selectedId = parseReportQueryId(p.get('report_id'));
   }
 
   function syncUrl() {
     const p = new URLSearchParams();
     if (state.submissionId) p.set('submission_id', state.submissionId);
+    if (state.selectedId != null) p.set('report_id', state.selectedId);
     if (state.q.trim()) p.set('q', state.q.trim());
     if (state.status !== 'all') p.set('status', state.status);
     if (state.team !== 'all') p.set('team', state.team);
@@ -215,6 +230,8 @@ export function render(data, ctx) {
           return {
             id: r.id,
             idPrefix: 'report',
+            selected: sameId(r.id, state.selectedId),
+            onOpen: (id) => openDetail(id),
             cells: [
               { label: 'チーム', value: r.team || '—' },
               { label: 'タイトル', value: r.title || '—' },
@@ -244,5 +261,66 @@ export function render(data, ctx) {
     countEl.textContent = filtering
       ? `${list.length} / ${rows.length} 件`
       : `${rows.length} 件`;
+  }
+
+  // ── 詳細。TA は読むだけ（書き込み口は元アプリにも無い） ──
+  async function openDetail(id, { focus = true } = {}) {
+    const r = rows.find((x) => sameId(x.id, id));
+    if (!r) return;
+
+    state.selectedId = id;
+    paint();
+    syncUrl();
+
+    const bodyHost = h('div', { class: 'loading', text: '詳細を読み込み中…' });
+    panel.open({
+      eyebrow: 'TA週報',
+      title: r.title,
+      body: bodyHost,
+      actions: [
+        h('button', {
+          class: 'btn btn--secondary', type: 'button',
+          onclick: () => panel.close()
+        }, '閉じる')
+      ],
+      onClose: () => {
+        state.selectedId = null;
+        paint();
+        syncUrl();
+        return listHost.querySelector(`#report_${CSS.escape(String(id))} .row__open`);
+      }
+    });
+
+    try {
+      const detail = ctx.demo
+        ? await demoTaReport(id)
+        : await api.taReport(id);
+      if (!sameId(state.selectedId, id)) return;
+      const fields = detail.fields || {};
+      const due = detail.due || r.dueText || '—';
+      const entries = [
+        ['チーム', detail.team || r.team || '—'],
+        ['タイトル', detail.title || r.title || '—'],
+        ['ステータス', statusPill(detail.status || r.status)],
+        ['提出期限', detail.overdue ? `${due}（期限切れ）` : due],
+        ['作業期間', detail.period || r.period || '—'],
+        ['概要', fields['概要'] || '—'],
+        ['進捗', fields['進捗'] || '—'],
+        ['課題', fields['課題'] || '—'],
+        ['計画', fields['計画'] || '—'],
+        ['最終更新', detail.updatedAt || '—']
+      ];
+      bodyHost.replaceWith(metaList(entries));
+    } catch (e) {
+      bodyHost.replaceWith(metaList([
+        ['チーム', r.team || '—'],
+        ['タイトル', r.title || '—'],
+        ['ステータス', statusPill(r.status)],
+        ['期限', r.dueText || '—'],
+        ['詳細', e.message || '取得できませんでした']
+      ]));
+    }
+
+    if (!focus) document.activeElement?.blur?.();
   }
 }

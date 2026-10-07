@@ -11,7 +11,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
 import {
-  parseTaDashboard, parseTaOrderDetail, parseTaOrders, parseTaReports,
+  parseTaDashboard, parseTaOrderDetail, parseTaOrders, parseTaReportDetail, parseTaReports,
   parseTaTeams, parseTaUsers, parseUserWithMode, parseViewMode
 } from '../src/parse-ta.js';
 
@@ -175,4 +175,67 @@ test('合成 HTML でも TA 注文行を読める', () => {
   assert.equal(parsed.orders[0].team, '01: チーム');
   assert.equal(parsed.orders[0].quantityValue, 2);
   assert.equal(parsed.orders[0].status, '注文済み');
+});
+
+const reportDetailHtml = live('ta_report_detail.html');
+if (reportDetailHtml) {
+  test('実 HTML から TA 週報の詳細を取れる', () => {
+    const d = parseTaReportDetail(reportDetailHtml);
+    assert.match(String(d.id), /^[0-9a-f-]{36}$/i);
+    assert.ok(d.title);
+    assert.ok(['完了', '未完了'].includes(d.status), d.status);
+    assert.ok(d.team);
+    assert.ok(d.period);
+    assert.equal(typeof d.overdue, 'boolean');
+    assert.ok(d.fields['概要']);
+    assert.ok(d.fields['進捗']);
+    assert.ok(d.fields['課題']);
+    assert.ok(d.fields['計画']);
+    assert.ok(d.updatedAt);
+  });
+}
+
+test('合成した TA 週報の詳細から本文項目を取れる', () => {
+  const html = `
+    <turbo-frame id="side_panel">
+      <h2 class="text-2xl font-bold">第15週 週報</h2>
+      <span class="rounded-xl shadow-lg whitespace-nowrap">
+        <div class="w-2 h-2 rounded-full"></div>
+        未完了
+      </span>
+      <div class="rounded-lg whitespace-nowrap"><span>01: RYKT</span></div>
+      <span class="font-medium">提出期限</span>
+      <div class="text-sm">2026/08/05 17:00<span>期限切れ</span></div>
+      <span class="font-medium">作業期間</span>
+      <div class="text-sm">08/03 〜 08/09</div>
+      <span class="font-medium">概要</span>
+      <div class="text-sm">概要文</div>
+      <span class="font-medium">進捗</span>
+      <div class="text-sm">進捗文</div>
+      <div class="text-xs">週報ID</div>
+      <div class="text-sm">c1111111-1111-4111-8111-111111111111</div>
+    </turbo-frame>`;
+  const d = parseTaReportDetail(html);
+  assert.equal(d.id, 'c1111111-1111-4111-8111-111111111111');
+  assert.equal(d.title, '第15週 週報');
+  assert.equal(d.status, '未完了');
+  assert.equal(d.team, '01: RYKT');
+  assert.equal(d.due, '2026/08/05 17:00');
+  assert.equal(d.overdue, true);
+  assert.equal(d.period, '08/03 〜 08/09');
+  assert.equal(d.fields['概要'], '概要文');
+  assert.equal(d.fields['進捗'], '進捗文');
+});
+
+test('ナビの閉じ忘れ span が見出し語に混ざらない', () => {
+  const html = `
+    <nav><span class="font-medium">メニュー
+    <turbo-frame id="side_panel">
+      <h2 class="text-2xl font-bold">題</h2>
+      <span class="font-medium">概要</span>
+      <div class="text-sm">本文</div>
+    </turbo-frame>`;
+  const d = parseTaReportDetail(html);
+  assert.equal(d.fields['概要'], '本文');
+  assert.ok(!Object.keys(d.fields).some((k) => k.includes('メニュー')));
 });

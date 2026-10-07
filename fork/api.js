@@ -97,6 +97,8 @@ export const api = {
     if (refresh) u.searchParams.set('refresh', '1');
     return request(u.pathname + u.search);
   },
+  /** TA 週報の詳細（読み取り専用）。元アプリの `/ta/reports/:id` を読む。 */
+  taReport: (id, opts) => request(`/api/ta/reports/${encodeURIComponent(id)}`, opts),
   taTeams: (opts) => request('/api/ta/teams', opts),
   taUsers: (opts) => request('/api/ta/users', opts),
 

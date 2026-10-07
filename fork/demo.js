@@ -523,6 +523,33 @@ export function demoTaReports(opts = {}) {
   return cached(`ta-reports:${opts.submissionId || 'all'}`, buildTaReports, opts);
 }
 
+/** デモの TA 週報詳細。本文は一覧の行に足すだけの見本。 */
+export async function demoTaReport(id, opts = {}) {
+  const data = await demoTaReports(opts);
+  const r = (data.reports || []).find((x) => String(x.id) === String(id));
+  if (!r) throw new Error('週報が見つかりません');
+  return {
+    source: data.source,
+    fetchedAt: data.fetchedAt,
+    id: r.id,
+    title: r.title,
+    status: r.status,
+    team: r.team,
+    due: r.due,
+    period: r.period,
+    overdue: r.status === '期限切れ',
+    fields: {
+      提出期限: r.due || '—',
+      作業期間: r.period || '—',
+      概要: `${r.title}の概要（デモ）`,
+      進捗: 'デモの進捗',
+      課題: 'デモの課題',
+      計画: 'デモの計画'
+    },
+    updatedAt: r.due || null
+  };
+}
+
 function buildTaTeams() {
   return {
     heading: 'チーム管理',

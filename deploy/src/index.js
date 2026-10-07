@@ -46,7 +46,7 @@ import {
   parseOrderDetail, parseOrders
 } from './parse-pages.js';
 import {
-  parseTaDashboard, parseTaOrderDetail, parseTaOrders, parseTaReports,
+  parseTaDashboard, parseTaOrderDetail, parseTaOrders, parseTaReportDetail, parseTaReports,
   parseTaTeams, parseTaUsers
 } from './parse-ta.js';
 import { buildParseAlertPayload, inspectParse } from './parse-guard.js';
@@ -717,9 +717,20 @@ async function handleApi(request, url, env, ctx) {
     ));
   }
 
-  // TA 週報は submission_id クエリで締切を選ぶ
-  if (path === '/api/ta/reports') {
+  // TA 週報の詳細。読み取り専用（本文は元アプリの表示のまま）。
+  const taReportDetail = path.match(/^\/api\/ta\/reports\/([^/]+)$/);
+  if (taReportDetail && request.method === 'GET') {
+    const id = parseIdToken(taReportDetail[1]);
+    if (id == null) return json({ error: 'そのような口はありません' }, 404);
+    const originPath = `/ta/reports/${id}`;
     const refresh = url.searchParams.get('refresh') === '1';
+    return json(await page(
+      session.cookie, originPath, parseTaReportDetail, env, ctx, { refresh }
+    ));
+  }
+
+  // TA 週報は submission_id クエリで締切を選ぶ
+  if (path === '/api/ta/reports') {    const refresh = url.searchParams.get('refresh') === '1';
     const submissionId = url.searchParams.get('submission_id');
     let originPath = '/ta/reports';
     if (submissionId) {

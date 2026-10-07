@@ -272,6 +272,67 @@ export function parseTaOrderDetail(html) {
   };
 }
 
+/** `/ta/reports/:id` の週報詳細。読み取り専用。
+ *
+ * 学生の編集画面（`/reports/:id/edit`）とは器が違う。TA 詳細は
+ * `週報詳細` の見出しの下に `font-medium` の見出し語と `text-sm` の値が
+ * 並び、項目名は 提出期限 / 作業期間 / 概要 / 進捗 / 課題 / 計画。
+ * 提出期限の値には `期限切れ` バッジが混ざることがある。
+ * 項目名は HTML の見出し語を素通しし、語彙を作らない。
+ */
+export function parseTaReportDetail(html) {
+  const body = String(html || '');
+  const title = body.match(/<h2\b[^>]*class="[^"]*text-2xl[^"]*"[^>]*>([\s\S]*?)<\/h2>/i);
+
+  let status = '';
+  const pill = body.match(/rounded-xl[^>]*>[\s\S]{0,120}?>\s*(完了|未完了)\s*</);
+  if (pill) status = pill[1];
+  if (!status) {
+    // `未完了` は `完了` を含むので、タグに挟まれた文言で長い方から見る
+    const texts = [...String(body).matchAll(/>([^<>]+)</g)].map((m) => m[1].trim());
+    if (texts.some((t) => t.includes('未完了'))) status = '未完了';
+    else if (texts.some((t) => t.includes('完了'))) status = '完了';
+  }
+
+  const team = (
+    body.match(/rounded-lg whitespace-nowrap">\s*<span[^>]*>([\s\S]*?)<\/span>/)
+  );
+
+  const fields = {};
+  // 見出し語は素の文言だけ（入れ子タグを許すと閉じ忘れの span が
+  // ナビ文言まで飲み込む）。値までの間に次の見出し語も跨がない。
+  const pairRe = /<span\b[^>]*class="[^"]*font-medium[^"]*"[^>]*>([^<>]*?)<\/span>((?:(?!font-medium)[\s\S]){0,400}?)<div\b[^>]*class="[^"]*text-sm[^"]*"[^>]*>([\s\S]*?)<\/div>/gi;
+  let pm;
+  while ((pm = pairRe.exec(body))) {
+    const label = text(pm[1]);
+    const value = text(pm[3]);
+    if (label && value && !(label in fields)) fields[label] = value;
+  }
+
+  const due = fields['提出期限'] || null;
+  const overdue = /期限切れ/.test(due || '');
+  const meta = {};
+  const metaRe = /<div\b[^>]*class="[^"]*text-xs[^"]*"[^>]*>\s*(週報ID|最終更新)\s*<\/div>\s*<div\b[^>]*>([\s\S]*?)<\/div>/gi;
+  let mm;
+  while ((mm = metaRe.exec(body))) {
+    meta[mm[1]] = text(mm[2]);
+  }
+
+  const id = parseIdToken(meta['週報ID']);
+
+  return {
+    id,
+    title: title ? text(title[1]) : '',
+    status,
+    team: team ? text(team[1]) : null,
+    due: due ? due.replace(/\s*期限切れ\s*/, '').trim() || null : null,
+    period: fields['作業期間'] || null,
+    overdue,
+    fields,
+    updatedAt: meta['最終更新'] || null
+  };
+}
+
 function headingText(body) {
   const m = body.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/i);
   return m ? text(m[1]) || null : null;
