@@ -1406,7 +1406,7 @@ button.rail__link {
 .meta { display: flex; flex-direction: column; }
 .meta__row {
   display: grid;
-  grid-template-columns: 5.5rem minmax(0, 1fr);
+  grid-template-columns: 6.5rem minmax(0, 1fr);
   gap: var(--space-sm);
   padding: var(--space-xs) 0;
   border-bottom: var(--rule-fine) solid var(--color-rule);
