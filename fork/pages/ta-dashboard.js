@@ -95,7 +95,10 @@ export function render(data, ctx) {
               onclick: () => ctx.navigate('/ta/reports')
             },
             h('span', { class: 'item__title', text: r.title || '週報' }),
-            h('span', { class: 'item__meta', text: [r.team, r.status].filter(Boolean).join(' · ') }))))
+            h('span', {
+              class: 'item__meta',
+              text: [r.team, r.status].filter(Boolean).join(' · ')
+            })))))
           : null),
       h('aside', { class: 'board__tally', 'aria-label': '件数' },
         [
