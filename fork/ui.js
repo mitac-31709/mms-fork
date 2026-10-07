@@ -34,6 +34,7 @@ const STATUS_TONES = {
   返却済み: { tone: 'done', glyph: '✓' },
   既読: { tone: 'done', glyph: '✓' },
   有効: { tone: 'done', glyph: '✓' },
+  準備完了: { tone: 'done', glyph: '✓' },
   受取済み: { tone: 'received', glyph: '✓' },
   保留中: { tone: 'pending', glyph: '●' },
   注文済み: { tone: 'ordered', glyph: '▣' },
@@ -41,6 +42,7 @@ const STATUS_TONES = {
   キャンセル済み: { tone: 'cancelled', glyph: '×' },
   無効: { tone: 'cancelled', glyph: '×' },
   期限切れ: { tone: 'cancelled', glyph: '×' },
+  下書き: { tone: 'open', glyph: '○' },
   未完了: { tone: 'open', glyph: '○' }
 };
 

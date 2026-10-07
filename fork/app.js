@@ -29,6 +29,7 @@ import * as orders from './pages/orders.js';
 import * as equipments from './pages/equipments.js';
 import * as loans from './pages/loans.js';
 import * as reports from './pages/reports.js';
+import * as localReports from './pages/local-reports.js';
 import * as notifications from './pages/notifications.js';
 import * as taDashboard from './pages/ta-dashboard.js';
 import * as taOrders from './pages/ta-orders.js';
@@ -36,7 +37,9 @@ import * as taReports from './pages/ta-reports.js';
 import * as taTeams from './pages/ta-teams.js';
 import * as taUsers from './pages/ta-users.js';
 
-const STUDENT_PAGES = [dashboard, orders, equipments, loans, reports, notifications];
+const STUDENT_PAGES = [
+  dashboard, orders, equipments, loans, reports, localReports, notifications
+];
 const TA_PAGES = [taDashboard, taOrders, taReports, taTeams, taUsers];
 const PAGES = [...STUDENT_PAGES, ...TA_PAGES];
 const BY_ROUTE = new Map(PAGES.map((p) => [p.meta.route, p]));
@@ -48,7 +51,8 @@ const STUDENT_NAV = [
   ['/orders', '注文'],
   ['/equipments', '機材'],
   ['/loans', '貸出'],
-  ['/reports', '週報']
+  ['/reports', '週報'],
+  ['/local-reports', 'ローカル週報']
 ];
 const TA_NAV = [
   ['/ta', 'TAホーム'],
