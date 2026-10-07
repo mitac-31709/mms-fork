@@ -42,6 +42,11 @@ export const PAGE_EXPECTATIONS = {
   '/reports/:id': {
     kind: 'report-detail'
   },
+  // `/ta/orders/:id/details` は Turbo Frame の断片が正常形。
+  // `<main>` / `<body>` を持たないので器の判定は frame で行う。
+  '/ta/orders/:id': {
+    kind: 'ta-order-detail'
+  },
   '/ta': {
     kind: 'dashboard',
     heading: 'TAダッシュボード'
@@ -100,7 +105,9 @@ export function inspectParse(path, html, parsed) {
     reasons.push(`HTML が短すぎる（${html.length} 文字）`);
   }
 
-  if (!/<main\b/i.test(html) && !/<body\b/i.test(html)) {
+  // Turbo Frame の断片（注文詳細など）は器が無くて正常。
+  // frame 自体が無いものだけを「器が無い」とする。
+  if (!/<main\b/i.test(html) && !/<body\b/i.test(html) && !/<turbo-frame\b/i.test(html)) {
     reasons.push('<main> も <body> も無い');
   }
 
@@ -133,6 +140,9 @@ export function inspectParse(path, html, parsed) {
       break;
     case 'report-detail':
       inspectReportDetail(html, parsed, reasons);
+      break;
+    case 'ta-order-detail':
+      inspectTaOrderDetail(html, parsed, reasons);
       break;
     default:
       reasons.push(`未知の kind: ${expect.kind}`);
@@ -201,6 +211,20 @@ function inspectReportDetail(html, parsed, reasons) {
     if (!got.has(name)) {
       reasons.push(`data-field-name="${name}" の項目がパース結果に無い`);
     }
+  }
+}
+
+/** TA 注文詳細。`/ta/orders/:id/details` は side_panel の断片が正常形。 */
+function inspectTaOrderDetail(html, parsed, reasons) {
+  if (!/<turbo-frame\b[^>]*\bside_panel\b/i.test(String(html || ''))) {
+    reasons.push('注文詳細の turbo-frame（side_panel）が無い');
+  }
+  if (!parsed || typeof parsed !== 'object') {
+    reasons.push('パース結果がオブジェクトではない');
+    return;
+  }
+  if (!String(parsed.product || '').trim()) {
+    reasons.push('商品名が取れない');
   }
 }
 

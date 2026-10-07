@@ -56,7 +56,10 @@ function parseReportQueryId(raw) {
 }
 
 export async function load(ctx, opts = {}) {
-  const origin = ctx.demo ? await demoReports(opts) : await api.reports(opts);
+  // demo-page-load.test.mjs が `demoReports(opts)` の形を要求する。
+  // await は呼び出し側で足す（refresh を落とさないため）。
+  const pending = ctx.demo ? demoReports(opts) : api.reports(opts);
+  const origin = await pending;
   return {
     source: origin.source || 'local',
     fetchedAt: origin.fetchedAt || new Date().toISOString(),
@@ -1438,9 +1441,10 @@ export function render(data, ctx) {
   }
 
   // ── 提出用 ⇄ 下書きの行き来 ───────────────────────
-  async function loadOriginList() {
-    if (ctx.demo) return demoReports();
-    return api.reports({ refresh: true });
+  // 一覧ダイアログ用。デモでも refresh を渡す（裏更新が live になる）。
+  async function loadOriginList(opts = {}) {
+    if (ctx.demo) return demoReports(opts);
+    return api.reports({ refresh: true, ...opts });
   }
 
   function pickWeekKeyForOrigin(originRow, doc) {

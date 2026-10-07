@@ -10,8 +10,9 @@ import { parseReportsPage, parseReportDetail } from '../src/parse.js';
 import {
   parseDashboard, parseEquipments, parseLoans, parseNotifications, parseOrders
 } from '../src/parse-pages.js';
+import { parseTaOrderDetail } from '../src/parse-ta.js';
 import {
-  buildParseAlertPayload, htmlSnippet, inspectParse
+  buildParseAlertPayload, expectationPath, htmlSnippet, inspectParse
 } from '../src/parse-guard.js';
 import { parseFormErrors } from '../src/meister.js';
 
@@ -87,6 +88,47 @@ describe('inspectParse · 週報詳細', () => {
     const r = inspectParse('/reports/114', detail, parsed);
     assert.equal(r.ok, false);
     assert.match(r.reasons.join('\n'), /content/);
+  });
+});
+
+describe('inspectParse · TA 注文詳細（Turbo Frame の断片）', () => {
+  const path = '/ta/orders/530743d1-cf3d-44cc-a4d1-a1833b138aa6/details';
+  const fragment = `
+<turbo-frame id="side_panel"> <div class="h-full overflow-y-auto bg-white">
+<div class="p-6 space-y-6"> <div class="flex justify-between items-center border-b border-gray-200 pb-4">
+<h2 class="text-xl font-bold text-gray-900">注文詳細</h2> </div>
+<div class="bg-gradient-to-br from-blue-50 to-purple-50 rounded-2xl p-6 pb-4 mb-6">
+<div class="flex items-start justify-between mb-4"> <div>
+<h2 class="text-2xl font-bold">アルミ丸棒 φ20</h2>
+<span class="rounded-full">注文済み</span>
+<a href="/ta/orders/530743d1-cf3d-44cc-a4d1-a1833b138aa6/edit">編集</a>
+</div> </div> </div>
+<div><label>単価</label><p>¥1,480</p></div>
+<div><label>ショップ名</label><p>モノタロウ</p></div>
+</div> </div>
+</turbo-frame>`;
+
+  test('details パスは注文詳細の想定に寄せる', () => {
+    assert.equal(expectationPath(path), '/ta/orders/:id');
+  });
+
+  test('<main>/<body> の無い断片は正常', () => {
+    const r = inspectParse(path, fragment, parseTaOrderDetail(fragment));
+    assert.equal(r.ok, true, r.reasons.join('; '));
+  });
+
+  test('商品名が取れない断片は理由を返す', () => {
+    const broken = fragment.replace(/<h2 class="text-2xl[^]*?<\/h2>/, '');
+    const r = inspectParse(path, broken, parseTaOrderDetail(broken));
+    assert.equal(r.ok, false);
+    assert.match(r.reasons.join('\n'), /商品名/);
+  });
+
+  test('frame 自体が無い断片は器が無いとみなす', () => {
+    const bare = '<div><p>ただの断片</p></div>'.repeat(20);
+    const r = inspectParse(path, bare, parseTaOrderDetail(bare));
+    assert.equal(r.ok, false);
+    assert.match(r.reasons.join('\n'), /<main> も <body> も無い/);
   });
 });
 
