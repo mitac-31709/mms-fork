@@ -186,4 +186,6 @@ cd ../deploy && node --test test/*.mjs           # パーサと API
   下書きはブラウザの localStorage のみに保存（サーバー非保存）。
   公式テンプレート（`[チーム番号]-[チーム名]-週報.xlsx` / シート「テンプレート」）で
   Excel 出力・取込、新規作成、週ブロック単位での提出用への同期（下書き→上書き）に対応。
-  旧 `/local-reports` は `/reports?tab=local` へ転送する
+  旧 `/local-reports` は `/reports?tab=local` へ転送する。
+  チーム名・メンバー等のヘッダーは「⚙ 下書き設定」で一元管理し、
+  ダッシュボードのチーム行・ログイン名・TA 名簿から空欄だけ自動入力する
