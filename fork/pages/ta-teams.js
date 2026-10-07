@@ -12,7 +12,11 @@ export const meta = {
   mode: 'ta'
 };
 
+const SORT_KEYS = ['name', 'membersValue', 'spendValue'];
 const state = { q: '', sortKey: 'name', sortDir: 'asc' };
+
+/** 人数は「5 人」の文言のまま比べると 10 人が 4 人より前に来る。数値で比べる。 */
+const numeric = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 
 export async function load(ctx, opts = {}) {
   return ctx.demo ? demoTaTeams(opts) : api.taTeams(opts);
@@ -23,8 +27,9 @@ export function render(data, ctx) {
     id: t.id,
     name: t.name || '',
     members: t.members || '',
+    membersValue: numeric(t.membersValue),
     spend: t.spend || '',
-    spendValue: typeof t.spendValue === 'number' ? t.spendValue : null,
+    spendValue: numeric(t.spendValue),
     pendingInvites: t.pendingInvites || '',
     spendText: fmtYen(t.spendValue, t.spend || '—')
   }));
@@ -32,13 +37,29 @@ export function render(data, ctx) {
 
   const p = new URLSearchParams(location.search);
   state.q = p.get('q') || '';
-  if (['name', 'spendValue', 'members'].includes(p.get('sort_by'))) {
-    state.sortKey = p.get('sort_by');
-  }
+  const key = p.get('sort_by');
+  if (SORT_KEYS.includes(key)) state.sortKey = key;
   state.sortDir = p.get('sort_direction') === 'desc' ? 'desc' : 'asc';
 
   const listHost = h('div', { class: 'list' });
   const countEl = h('p', { class: 'toolbar__count', role: 'status' });
+
+  const sortSelect = h('select', {
+    class: 'input select', id: 'sort', name: 'sort',
+    onchange: (e) => {
+      const [sortKey, sortDir] = e.target.value.split(':');
+      state.sortKey = sortKey;
+      state.sortDir = sortDir;
+      paint();
+      syncUrl();
+    }
+  }, [
+    ['name:asc', 'チーム名順'],
+    ['membersValue:desc', '人数が多い順'], ['membersValue:asc', '人数が少ない順'],
+    ['spendValue:desc', '使用額が大きい順'], ['spendValue:asc', '使用額が小さい順']
+  ].map(([value, label]) => h('option', {
+    value, selected: value === `${state.sortKey}:${state.sortDir}`
+  }, label)));
 
   const page = h('div', {},
     h('header', { class: 'page-head' },
@@ -50,6 +71,9 @@ export function render(data, ctx) {
           class: 'input', type: 'search', id: 'q', value: state.q,
           oninput: (e) => { state.q = e.target.value; paint(); syncUrl(); }
         })),
+      h('div', { class: 'field field--sort' },
+        h('label', { class: 'field__label', for: 'sort', text: '並べ替え' }),
+        h('span', { class: 'select-wrap' }, sortSelect)),
       countEl),
     listHost);
 
@@ -71,9 +95,10 @@ export function render(data, ctx) {
     return rows
       .filter((t) => !q || t.name.toLowerCase().includes(q))
       .sort((a, b) => {
-        const x = state.sortKey === 'spendValue' ? a.spendValue : a[state.sortKey];
-        const y = state.sortKey === 'spendValue' ? b.spendValue : b[state.sortKey];
+        const x = a[state.sortKey];
+        const y = b[state.sortKey];
         if (x === y) return String(a.name).localeCompare(String(b.name));
+        // 値が取れなかった行は向きによらず末尾に置く
         if (x == null) return 1;
         if (y == null) return -1;
         if (typeof x === 'number' && typeof y === 'number') return (x - y) * dir;
@@ -83,6 +108,8 @@ export function render(data, ctx) {
 
   function paint() {
     const list = visible();
+    // 見出しボタンとセレクトの向きを合わせる（どちらで変えてもずれない）
+    sortSelect.value = `${state.sortKey}:${state.sortDir}`;
     if (!list.length) {
       listHost.replaceChildren(state.q
         ? emptyBlock({
@@ -98,16 +125,18 @@ export function render(data, ctx) {
       caption: 'チーム一覧',
       columns: [
         { key: 'name', label: 'チーム', className: 'table__th--title' },
-        { key: 'members', label: '人数', className: 'table__th--status' },
+        { key: 'membersValue', label: '人数', className: 'table__th--status' },
         { key: 'spendValue', label: '使用額', className: 'table__th--status' },
         { key: 'pendingInvites', label: '招待', className: 'table__th--status' }
       ],
       sort: { key: state.sortKey, dir: state.sortDir },
       onSort: (key) => {
+        if (!SORT_KEYS.includes(key)) return;
         state.sortDir = state.sortKey === key && state.sortDir === 'asc' ? 'desc' : 'asc';
         state.sortKey = key;
         paint();
         syncUrl();
+        listHost.querySelector(`.sort-btn[data-sort="${key}"]`)?.focus();
       },
       rows: list.map((t) => ({
         id: t.id || t.name,

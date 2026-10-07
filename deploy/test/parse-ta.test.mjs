@@ -124,8 +124,29 @@ if (teamsHtml) {
     assert.ok(parsed.teams.length >= 1);
     assert.ok(parsed.teams[0].id, 'チーム id が取れる');
     assert.ok(parsed.teams[0].name);
+    assert.equal(typeof parsed.teams[0].membersValue, 'number');
   });
 }
+
+test('チームの人数を数値にできる。読めなければ null', () => {
+  const html = `
+  <main>
+    <h1>チーム管理</h1>
+    <table><thead><tr>
+      <th>チーム</th><th>人数</th><th>使用額</th><th>招待</th><th>操作</th>
+    </tr></thead>
+    <tbody>
+      <tr><td><a href="/ta/teams/1">01: RYKT</a></td><td>10 人</td><td>¥838</td><td>なし</td><td></td></tr>
+      <tr><td><a href="/ta/teams/2">02: うめ</a></td><td>4 人</td><td>¥100</td><td>なし</td><td></td></tr>
+      <tr><td><a href="/ta/teams/3">03: 未定</a></td><td>—</td><td>¥0</td><td>1</td><td></td></tr>
+    </tbody></table>
+  </main>`;
+  const parsed = parseTaTeams(html);
+  assert.equal(parsed.teams.length, 3);
+  assert.equal(parsed.teams[0].membersValue, 10);
+  assert.equal(parsed.teams[1].membersValue, 4);
+  assert.equal(parsed.teams[2].membersValue, null);
+});
 
 const usersHtml = live('live_ta_users.html');
 if (usersHtml) {

@@ -132,6 +132,11 @@ function toQuantity(value) {
   return toNumber(String(value || '').replace(/個/g, ''));
 }
 
+/** 「5人」「5 人」も数値にする。読めなければ null（0 人は 0）。 */
+function toHeadcount(value) {
+  return toNumber(String(value || '').replace(/人/g, ''));
+}
+
 /** `/ta/orders`。行 id は UUID。列はチェックボックス付き。 */
 export function parseTaOrders(html) {
   const body = main(html);
@@ -444,6 +449,7 @@ export function parseTaTeams(html) {
         id,
         name,
         members: text(cells[1] || ''),
+        membersValue: toHeadcount(text(cells[1] || '')),
         spend: text(cells[2] || ''),
         pendingInvites: text(cells[3] || ''),
         spendValue: toNumber(cells[2] || '')

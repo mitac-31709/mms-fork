@@ -557,17 +557,17 @@ function buildTaTeams() {
     teams: [
       {
         id: 'd1111111-1111-4111-8111-111111111111',
-        name: '01: RYKT', members: '5 人', spend: '¥838',
+        name: '01: RYKT', members: '5 人', membersValue: 5, spend: '¥838',
         pendingInvites: 'なし', spendValue: 838
       },
       {
         id: 'd2222222-2222-4222-8222-222222222222',
-        name: '02: うめおにぎり', members: '4 人', spend: '¥74,507',
+        name: '02: うめおにぎり', members: '4 人', membersValue: 4, spend: '¥74,507',
         pendingInvites: 'なし', spendValue: 74507
       },
       {
         id: 'd3333333-3333-4333-8333-333333333333',
-        name: '03: (未定)', members: '2 人', spend: '¥0',
+        name: '03: (未定)', members: '2 人', membersValue: 2, spend: '¥0',
         pendingInvites: '1', spendValue: 0
       }
     ]
