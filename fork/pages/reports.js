@@ -73,6 +73,19 @@ export function render(data, ctx) {
   const serverCounts = data.origin?.counts?.合計 != null ? data.origin.counts : null;
   const originEmpty = data.origin?.empty || { title: '週報がありません', body: '' };
   let localRows = [...(data.localDocs || listLocalReports())];
+  // 編集中の下書き（パネル間の共有）。return より前で宣言すること。
+  // （return 後の let/const は実行されない）
+  let editingDoc = null;
+
+  const PROFILE_LABELS = {
+    teamName: 'チーム名', teamNumber: 'チーム番号', overview: '作品概要',
+    meetingDay: 'ミーティング曜日', meetingTime: 'ミーティング時間'
+  };
+
+  // 提出用の自動保存キュー。同じく return より前で宣言すること。
+  const saveTimers = new Map();
+  const dirtyFields = new Set();
+  const datesTouched = new Set();
 
   readUrl();
 
@@ -422,10 +435,6 @@ export function render(data, ctx) {
   }
 
   // ── 提出用の詳細 ────────────────────────────────
-  const saveTimers = new Map();
-  const dirtyFields = new Set();
-  const datesTouched = new Set();
-
   function applyDetail(r, detail) {
     if (!detail || typeof detail !== 'object') return;
     if (detail.title) r.title = detail.title;
@@ -982,7 +991,6 @@ export function render(data, ctx) {
   // ── 下書きエディタ（2 階層：概要 → 週詳細） ────────
   // 提出用の詳細パネルと同じ見た目にする。ヘッダー設定は持たない。
   // チーム名・メンバー等は「⚙ 下書き設定」で一括管理する。
-  let editingDoc = null;
 
   function loadDraftIntoEditor(id) {
     if (editingDoc && sameId(editingDoc.id, id)) return editingDoc;
@@ -1213,11 +1221,6 @@ export function render(data, ctx) {
   }
 
   // ── 下書き設定（ヘッダー共通値） ──────────────────
-  const PROFILE_LABELS = {
-    teamName: 'チーム名', teamNumber: 'チーム番号', overview: '作品概要',
-    meetingDay: 'ミーティング曜日', meetingTime: 'ミーティング時間'
-  };
-
   /** アプリから埋められる分だけ集める（ダッシュボード・ログイン名・TA 名簿）。 */
   async function collectAppProfilePatch() {
     const patch = { members: [], support: [] };
