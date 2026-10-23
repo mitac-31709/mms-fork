@@ -58,6 +58,12 @@ export const api = {
   }),
   orders: (opts) => request('/api/orders', opts),
   taOrders: (opts) => request('/api/ta/orders', opts),
+  /** 見えている注文の商品画像。ids は最大 8 件。 */
+  taOrderImages: (ids) => request('/api/ta/orders/images', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids })
+  }),
   /** TA の注文ステータスを元アプリの編集フォームへ保存する。 */
   updateTaOrderStatus: (id, status) => request(`/api/ta/orders/${encodeURIComponent(id)}`, {
     method: 'PATCH',

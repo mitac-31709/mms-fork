@@ -422,6 +422,16 @@ export function parseTaOrderForm(html) {
   return null;
 }
 
+/** 詳細 HTML の「商品URL」。一覧にはこのリンクが無い。 */
+export function parseTaProductUrl(html) {
+  const at = String(html || '').search(/商品URL/);
+  if (at < 0) return null;
+  const href = html.slice(at, at + 800).match(/href="(https?:\/\/[^"]+)"/i);
+  if (!href) return null;
+  const url = decodeAttr(href[1]);
+  return /^https?:\/\//i.test(url) ? url : null;
+}
+
 /** 何ページ取るか。1 ページの件数と総数から決める。上限で打ち切る。 */
 export function taPageCount(total, pageLength, cap = 15) {
   const size = Number(pageLength);
