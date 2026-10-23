@@ -250,7 +250,7 @@ def check_ta_orders(page) -> None:
              "createdAtISO": "2026-10-01",
              "unitPriceValue": 0, "quantityValue": 1, "totalValue": 0}
         ]
-    }))
+    }), demo=True)
     body = page.inner_text("#view")
     check("YSLR6K/4S" in body, "型番が一覧に出ていない")
     check("モノタロウ" in body, "ショップが一覧に出ていない")
@@ -271,13 +271,25 @@ def check_ta_orders(page) -> None:
     check("アルカリ乾電池" in page.locator("#view .row").nth(0).inner_text(),
           "チーム絞り込みの行が違う")
 
+    page.locator("#view .row__open").first.click()
+    status = page.locator("#order-status")
+    check(status.input_value() == "ordered", "詳細のステータスが注文済みではない")
+    save = page.locator("#order-status-save")
+    check(save.is_disabled(), "変えていないのにステータスを更新できる")
+    page.select_option("#order-status", "available")
+    check(save.is_enabled(), "ステータスを変えても更新できない")
+    save.click()
+    updated = page.locator("#order_60d01939-3c2b-4d5c-a4aa-2966f2b12d9e")
+    check("受取可能" in updated.inner_text(), "更新後の一覧が受取可能になっていない")
+    page.click("#panel-cancel")
+
     page.select_option("#team", "all")
     page.fill("#q", "存在しない型番")
     check(page.locator("#view .empty__title").inner_text() == "条件に合う注文がありません",
           "0 件のときの見出しが違う")
     # 検索語は URL の q に残る。次の画面の readUrl が拾わないよう戻す。
     page.evaluate("() => history.replaceState(null, '', location.pathname + '?demo=1')")
-    print("  TA注文: 型番・ショップの表示 / 型番・ショップ・チームの検索")
+    print("  TA注文: 型番・ショップの表示 / 型番・ショップ・チームの検索 / ステータス更新")
 
 
 # ── 貸出 ───────────────────────────────────────────

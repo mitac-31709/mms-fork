@@ -5,6 +5,7 @@
  * - `GET  /api/me`         ログイン中の利用者
  * - `GET  /api/<page>`     元アプリの画面を JSON にして返す
  * - `GET  /api/ta/orders`  TA の注文（型番・ショップ付き。ページをまとめて返す）
+ * - `PATCH /api/ta/orders/:id`  TA の注文ステータスを元アプリの編集フォームへ保存する
  * - `GET  /api/reports/:id` 週報の詳細（`/reports/:id/edit` の HTML。本文項目は編集画面にある）
  * - `PATCH /api/reports/:id` 週報の 1 項目を元アプリへ保存する（auto_save / フォーム）
  * - `POST /api/orders`     新しい注文を元アプリへ作る
@@ -28,7 +29,8 @@ import {
 } from './background.js';
 import { forwardDiscord, sanitizeDiscordBody, validateWebhookUrl } from './discord.js';
 import {
-  ApiError, createOrder, get, html, saveReportField, signIn, signOut, unreadCount
+  ApiError, createOrder, get, html, saveReportField, signIn, signOut,
+  unreadCount, updateTaOrderStatus
 } from './meister.js';
 import {
   FRESH_MS, PAGE_CACHE_PATHS, STALE_WHILE_REVALIDATE_MS,
@@ -389,6 +391,38 @@ async function handleOrderCreate(request, env) {
   }, 201, headers);
 }
 
+/** TA の注文ステータスを元アプリへ保存する。 */
+async function handleTaOrderStatus(request, env, rawId) {
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: 'JSON の本文が必要です' }, 400);
+  }
+
+  const session = await currentSession(request, env);
+  if (!session) return unauthorized();
+
+  const status = typeof body?.status === 'string' ? body.status.trim() : '';
+  const result = await updateTaOrderStatus(session.cookie, rawId, status);
+
+  const headers = {};
+  if (result.cookie && result.cookie !== session.cookie) {
+    const token = await seal(sessionPayload(session, result.cookie), env.SESSION_SECRET);
+    headers['Set-Cookie'] = setCookieHeader(token);
+  }
+
+  const userKey = await userCacheKey(result.cookie || session.cookie);
+  await pageCache.invalidate(userKey, ['/ta/orders', '/orders', '/dashboard']);
+
+  return json({
+    ok: true,
+    id: result.id,
+    status: result.status,
+    statusLabel: result.statusLabel
+  }, 200, headers);
+}
+
 /** 週報の 1 項目を元アプリへ保存する。 */
 async function handleReportFieldSave(request, env, rawId) {
   const id = parseIdToken(rawId);
@@ -615,6 +649,11 @@ async function handleApi(request, url, env, ctx) {
 
   if (path === '/api/orders' && request.method === 'POST') {
     return handleOrderCreate(request, env);
+  }
+
+  const taOrderWrite = path.match(/^\/api\/ta\/orders\/([^/]+)$/);
+  if (taOrderWrite && request.method === 'PATCH') {
+    return handleTaOrderStatus(request, env, taOrderWrite[1]);
   }
 
   const reportWrite = path.match(/^\/api\/reports\/([^/]+)$/);

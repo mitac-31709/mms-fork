@@ -341,6 +341,87 @@ function parseTaTotal(html) {
   return m ? Number(m[1]) : null;
 }
 
+function decodeAttr(value) {
+  return String(value)
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>');
+}
+
+function namedControl(formHtml, name) {
+  const inputRe = /<input\b[^>]*>/gi;
+  let input;
+  while ((input = inputRe.exec(formHtml))) {
+    const tag = input[0];
+    if ((tag.match(/\bname="([^"]*)"/) || [])[1] !== name) continue;
+    const value = (tag.match(/\bvalue="([^"]*)"/) || [])[1];
+    return value == null ? '' : decodeAttr(value);
+  }
+  const area = formHtml.match(
+    new RegExp(`<textarea\\b[^>]*\\bname="${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"[^>]*>([\\s\\S]*?)</textarea>`, 'i')
+  );
+  if (area) return decodeAttr(area[1]);
+  return null;
+}
+
+/** `/ta/orders/:id/edit` の更新フォーム。
+ *  2026-10-23 に TA の編集画面で確認した。ステータスは
+ *  `order[status]` の select（保留中 / 注文済み / 受取可能 / 受取済み / キャンセル済み）。
+ *  他の項目を空で送ると元の値が消えるので、項目が欠けたら null を返す。 */
+export function parseTaOrderForm(html) {
+  const formRe = /<form\b([^>]*)>([\s\S]*?)<\/form>/gi;
+  let form;
+  while ((form = formRe.exec(html || ''))) {
+    const action = (form[1].match(/\baction="([^"]*)"/) || [])[1] || '';
+    const id = parseIdToken(action.split('/').pop());
+    if (!/^\/ta\/orders\/[0-9a-f-]{36}$/i.test(action) || id == null) continue;
+
+    const body = form[2];
+    const productName = namedControl(body, 'order[product_name]');
+    const amount = namedControl(body, 'order[amount]');
+    const quantity = namedControl(body, 'order[quantity]');
+    const shopName = namedControl(body, 'order[shop_name]');
+    const modelNumber = namedControl(body, 'order[model_number]');
+    const productUrl = namedControl(body, 'order[product_url]');
+    const memo = namedControl(body, 'order[memo]');
+    const select = body.match(/<select\b[^>]*\bname="order\[status\]"[^>]*>([\s\S]*?)<\/select>/i);
+    if ([productName, amount, quantity, shopName, modelNumber, productUrl, memo].includes(null)
+      || !select) {
+      return null;
+    }
+
+    const statusOptions = [];
+    let status = null;
+    const optRe = /<option\b([^>]*)>([\s\S]*?)<\/option>/gi;
+    let opt;
+    while ((opt = optRe.exec(select[1]))) {
+      const value = (opt[1].match(/\bvalue="([^"]*)"/) || [])[1] ?? '';
+      const label = text(opt[2]);
+      if (!value || !label) continue;
+      statusOptions.push({ value, label });
+      if (/\bselected\b/.test(opt[1])) status = value;
+    }
+    if (!status || !statusOptions.length) return null;
+
+    return {
+      id,
+      action,
+      productName,
+      amount,
+      quantity,
+      shopName,
+      modelNumber,
+      productUrl,
+      memo,
+      status,
+      statusOptions
+    };
+  }
+  return null;
+}
+
 /** 何ページ取るか。1 ページの件数と総数から決める。上限で打ち切る。 */
 export function taPageCount(total, pageLength, cap = 15) {
   const size = Number(pageLength);

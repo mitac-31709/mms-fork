@@ -328,6 +328,10 @@ export function render(data, ctx) {
     });
   }
 
+  function statusValueOf(label) {
+    return (data.statuses || []).find((item) => item.label === label)?.value || '';
+  }
+
   function openDetail(id, { focus = true } = {}) {
     const o = rows.find((x) => x.id === id);
     if (!o) return;
@@ -336,26 +340,97 @@ export function render(data, ctx) {
     paint();
     syncUrl();
 
+    const options = data.statuses || [];
+    let savedValue = statusValueOf(o.status);
+    const errorEl = h('p', { class: 'form-error', id: 'order-status-error', hidden: true });
+    const select = h('select', {
+      class: 'input select', id: 'order-status', name: 'status',
+      onchange: syncSave
+    }, [
+      savedValue ? null : h('option', { value: '', selected: true }, o.status || '—'),
+      ...options.map((item) => h('option', {
+        value: item.value,
+        selected: item.value === savedValue
+      }, item.label))
+    ]);
+    const saveButton = h('button', {
+      class: 'btn btn--primary', type: 'button', id: 'order-status-save',
+      disabled: true,
+      onclick: () => saveStatus(o, select, saveButton, errorEl)
+    }, 'ステータスを更新');
+
+    function syncSave() {
+      saveButton.disabled = !select.value || select.value === savedValue;
+    }
+
+    async function saveStatus(order, statusSelect, button, error) {
+      const next = statusSelect.value;
+      const label = options.find((item) => item.value === next)?.label;
+      if (!next || !label || next === savedValue) return;
+      error.hidden = true;
+      button.disabled = true;
+      button.dataset.state = 'loading';
+      button.textContent = '更新中…';
+      try {
+        if (!ctx.demo) {
+          const result = await api.updateTaOrderStatus(order.id, next);
+          if (result?.statusLabel) order.status = result.statusLabel;
+          else order.status = label;
+        } else {
+          order.status = label;
+        }
+        savedValue = next;
+        paint();
+      } catch (e) {
+        error.textContent = e?.message || 'ステータスを更新できませんでした';
+        error.hidden = false;
+      } finally {
+        button.textContent = 'ステータスを更新';
+        delete button.dataset.state;
+        syncSave();
+      }
+    }
+
+    const editor = options.length
+      ? h('div', { class: 'form-stack' },
+        errorEl,
+        h('div', { class: 'field' },
+          h('label', { class: 'field__label', for: 'order-status', text: 'ステータス' }),
+          h('span', { class: 'select-wrap' }, select)))
+      : h('div', {},
+        h('span', { class: 'meta__label', text: 'ステータス' }),
+        statusPill(o.status, { doneWhen: ['受取済み'] }));
+
     panel.open({
       eyebrow: 'TA注文',
       title: o.product,
-      body: metaList([
-        ['商品', o.product || '—'],
-        ['型番', o.modelNumber || '—'],
-        ['ショップ', o.shopName || '—'],
-        ['チーム', o.team || '—'],
-        ['単価', o.unitPriceText],
-        ['数量', o.quantityText],
-        ['合計', o.totalText],
-        ['ステータス', statusPill(o.status, { doneWhen: ['受取済み'] })],
-        ['作成日時', o.createdText || '—']
-      ]),
-      actions: [
-        h('button', {
-          class: 'btn btn--secondary', type: 'button', id: 'panel-cancel',
-          onclick: () => panel.close()
-        }, '閉じる')
+      body: [
+        editor,
+        metaList([
+          ['商品', o.product || '—'],
+          ['型番', o.modelNumber || '—'],
+          ['ショップ', o.shopName || '—'],
+          ['チーム', o.team || '—'],
+          ['単価', o.unitPriceText],
+          ['数量', o.quantityText],
+          ['合計', o.totalText],
+          ['作成日時', o.createdText || '—']
+        ])
       ],
+      actions: options.length
+        ? [
+          saveButton,
+          h('button', {
+            class: 'btn btn--secondary', type: 'button', id: 'panel-cancel',
+            onclick: () => panel.close()
+          }, '閉じる')
+        ]
+        : [
+          h('button', {
+            class: 'btn btn--secondary', type: 'button', id: 'panel-cancel',
+            onclick: () => panel.close()
+          }, '閉じる')
+        ],
       onClose: () => {
         state.selectedId = null;
         paint();

@@ -58,6 +58,12 @@ export const api = {
   }),
   orders: (opts) => request('/api/orders', opts),
   taOrders: (opts) => request('/api/ta/orders', opts),
+  /** TA の注文ステータスを元アプリの編集フォームへ保存する。 */
+  updateTaOrderStatus: (id, status) => request(`/api/ta/orders/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status })
+  }),
   equipments: (opts) => request('/api/equipments', opts),
   loans: (opts) => request('/api/loans', opts),
   notifications: (opts) => request('/api/notifications', opts),

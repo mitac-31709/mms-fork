@@ -7,6 +7,7 @@
  * 画面 JSON のキャッシュは `page-cache.js` がセッション区画で行う（ここではしない）。
  */
 
+import { parseTaOrderForm } from './parse-pages.js';
 import {
   authenticityToken, csrfToken, looksLikeSignIn, parseIdToken, parseReportFields
 } from './parse.js';
@@ -331,6 +332,108 @@ export async function createOrder(cookie, fields) {
   }
 
   throw new ApiError(502, `元アプリの注文作成が ${posted.status} を返しました`);
+}
+
+/** TA の注文ステータスを元アプリの編集フォーム経由で更新する。
+ *  一覧には編集が無く、`/ta/orders/:id/edit` の `order[status]` が実体。
+ *  ステータス以外はフォームの今の値をそのまま戻し、空送信で消さない。 */
+export async function updateTaOrderStatus(cookie, id, status) {
+  const orderId = parseIdToken(id);
+  if (typeof orderId !== 'string') throw new ApiError(400, '注文の id が不正です');
+  const next = String(status ?? '').trim();
+  if (!/^[a-z0-9_]{1,32}$/i.test(next)) {
+    throw new ApiError(400, 'そのステータスには変更できません');
+  }
+
+  const editPath = `/ta/orders/${orderId}/edit`;
+  const formPage = await origin(editPath, { headers: { Accept: 'text/html' } }, cookie);
+  if (formPage.status >= 300 && formPage.status < 400) {
+    const location = formPage.headers.get('Location') || '';
+    if (location.includes('/users/sign_in')) {
+      throw new ApiError(401, 'ログインの有効期限が切れました。もう一度ログインしてください。',
+        { clearSession: true });
+    }
+    throw new ApiError(403, 'この注文のステータスは変更できません');
+  }
+  const formHtml = await formPage.text();
+  if (formPage.status !== 200 || looksLikeSignIn(formHtml)) {
+    throw new ApiError(401, 'ログインの有効期限が切れました。もう一度ログインしてください。',
+      { clearSession: true });
+  }
+
+  const form = parseTaOrderForm(formHtml);
+  if (!form || form.id !== orderId) {
+    throw new ApiError(502, '注文の編集フォームを読めませんでした');
+  }
+  const option = form.statusOptions.find((item) => item.value === next);
+  if (!option) throw new ApiError(400, 'そのステータスには変更できません');
+
+  const fresh = sessionCookieFrom(formPage) || cookie;
+  if (form.status === next) {
+    return {
+      ok: true, id: orderId, status: next, statusLabel: option.label, cookie: fresh
+    };
+  }
+
+  const token = authenticityToken(formHtml, { formAction: form.action });
+  if (!token) throw new ApiError(502, '注文フォームの authenticity_token が見つかりません');
+
+  const body = new URLSearchParams({
+    _method: 'patch',
+    authenticity_token: token,
+    'order[product_name]': form.productName,
+    'order[amount]': form.amount,
+    'order[quantity]': form.quantity,
+    'order[shop_name]': form.shopName,
+    'order[model_number]': form.modelNumber,
+    'order[product_url]': form.productUrl,
+    'order[status]': next,
+    'order[memo]': form.memo,
+    commit: '注文を更新'
+  });
+
+  const posted = await origin(form.action, {
+    method: 'POST',
+    body: body.toString(),
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      Accept: 'text/html',
+      Origin: ORIGIN,
+      Referer: `${ORIGIN}${editPath}`
+    }
+  }, fresh);
+
+  if (posted.status >= 300 && posted.status < 400) {
+    const location = posted.headers.get('Location') || '';
+    if (location.includes('/users/sign_in')) {
+      throw new ApiError(401, 'ログインの有効期限が切れました。もう一度ログインしてください。',
+        { clearSession: true });
+    }
+    return {
+      ok: true,
+      id: orderId,
+      status: next,
+      statusLabel: option.label,
+      cookie: sessionCookieFrom(posted) || fresh
+    };
+  }
+
+  const htmlBody = await posted.text();
+  if (looksLikeSignIn(htmlBody)) {
+    throw new ApiError(401, 'ログインの有効期限が切れました。もう一度ログインしてください。',
+      { clearSession: true });
+  }
+  if (/InvalidAuthenticityToken|change you wanted was rejected/i.test(htmlBody)) {
+    throw new ApiError(502, 'CSRF トークンが通りませんでした（注文フォームのトークンを確認してください）');
+  }
+  if (posted.status === 422 || posted.status === 200) {
+    const errors = parseFormErrors(htmlBody);
+    if (!errors.length) {
+      console.error('updateTaOrderStatus rejected:', posted.status);
+    }
+    throw new ApiError(422, errors[0] || 'ステータスを更新できませんでした', { details: errors });
+  }
+  throw new ApiError(502, `元アプリの注文更新が ${posted.status} を返しました`);
 }
 
 /** 共同編集の auto_save が受け付ける本文項目。 */

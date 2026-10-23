@@ -19,7 +19,7 @@ import { dirname, join } from 'node:path';
 import {
   parseUser, parseDashboard, parseOrders, parseOrderRows,
   parseEquipments, parseLoans, parseNotifications, toNumber,
-  parseTaOrders, taPageCount, readOrderProductCell
+  parseTaOrders, taPageCount, readOrderProductCell, parseTaOrderForm
 } from '../src/parse-pages.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -466,6 +466,60 @@ test('型番のハイフンとラベル付きセル', () => {
     '<span>品</span><span>ショップ: 秋月電子通商</span><span>型番: SPS-320N</span>'
   ), { product: '品', shopName: '秋月電子通商', modelNumber: 'SPS-320N' });
   assert.equal(readOrderProductCell('<span>品</span><span>型番: -</span>').modelNumber, null);
+});
+
+test('TA 注文の編集フォームからステータスと現状の値を取る', () => {
+  const html = `<form class="button_to" method="post" action="/users/sign_out">
+    <input type="hidden" name="_method" value="delete">
+    <input name="authenticity_token" value="logout-token">
+  </form>
+  <form action="/ta/orders/60d01939-3c2b-4d5c-a4aa-2966f2b12d9e" method="post">
+    <input type="hidden" name="_method" value="patch">
+    <input name="authenticity_token" value="form-token">
+    <input type="text" name="order[product_name]" value="電池 &amp; 単3">
+    <input type="number" name="order[amount]" value="315">
+    <input type="number" name="order[quantity]" value="1">
+    <input type="text" name="order[shop_name]" value="モノタロウ">
+    <input type="text" name="order[model_number]" value="YSLR6K/4S">
+    <input type="url" name="order[product_url]" value="https://example.test/item?a=1&amp;b=2">
+    <select name="order[status]" id="order_status">
+      <option value="pending">保留中</option>
+      <option selected="selected" value="ordered">注文済み</option>
+      <option value="available">受取可能</option>
+      <option value="received">受取済み</option>
+      <option value="cancelled">キャンセル済み</option>
+    </select>
+    <textarea name="order[memo]">メモ &amp; 行</textarea>
+    <input type="submit" name="commit" value="注文を更新">
+  </form>`;
+  assert.deepEqual(parseTaOrderForm(html), {
+    id: '60d01939-3c2b-4d5c-a4aa-2966f2b12d9e',
+    action: '/ta/orders/60d01939-3c2b-4d5c-a4aa-2966f2b12d9e',
+    productName: '電池 & 単3',
+    amount: '315',
+    quantity: '1',
+    shopName: 'モノタロウ',
+    modelNumber: 'YSLR6K/4S',
+    productUrl: 'https://example.test/item?a=1&b=2',
+    memo: 'メモ & 行',
+    status: 'ordered',
+    statusOptions: [
+      { value: 'pending', label: '保留中' },
+      { value: 'ordered', label: '注文済み' },
+      { value: 'available', label: '受取可能' },
+      { value: 'received', label: '受取済み' },
+      { value: 'cancelled', label: 'キャンセル済み' }
+    ]
+  });
+});
+
+test('項目が欠ける編集フォームは更新に使わない', () => {
+  const html = `<form action="/ta/orders/60d01939-3c2b-4d5c-a4aa-2966f2b12d9e" method="post">
+    <input name="order[product_name]" value="電池">
+    <select name="order[status]"><option selected value="ordered">注文済み</option></select>
+  </form>`;
+  assert.equal(parseTaOrderForm(html), null);
+  assert.equal(parseTaOrderForm('<p>なし</p>'), null);
 });
 
 test('TA 注文のページ数は総数と 1 ページの件数から決める', () => {
