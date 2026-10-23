@@ -235,6 +235,8 @@ def check_ta_orders(page) -> None:
              "shopName": "モノタロウ", "team": "16: A4",
              "unitPrice": "¥315", "quantity": "1個", "total": "¥315",
              "status": "注文済み", "createdAt": "10/22 16:13",
+             "productUrl": "https://example.test/battery",
+             "imageUrl": "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7",
              "unitPriceValue": 315, "quantityValue": 1, "totalValue": 315},
             {"id": "add58cdd-1b14-4357-b746-27e4e6ab1650",
              "product": "ドアセンサー", "modelNumber": "SPS-320N",
@@ -256,6 +258,11 @@ def check_ta_orders(page) -> None:
     check("モノタロウ" in body, "ショップが一覧に出ていない")
     check("16: A4" in body, "チームが一覧に出ていない")
     check(page.locator("#view th", has_text="型番").count() == 1, "型番の列見出しが無い")
+    thumb = page.locator("#order_60d01939-3c2b-4d5c-a4aa-2966f2b12d9e .product-thumb")
+    check(thumb.count() == 1, f"商品画像が {thumb.count()} 枚（1 枚を期待）")
+    check(thumb.get_attribute("src") == "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7",
+          "一覧の商品画像が出ていない")
+    check(thumb.is_visible(), "商品画像が隠れている")
 
     page.fill("#q", "SPS-320N")
     rows = page.locator("#view .row")
@@ -274,6 +281,10 @@ def check_ta_orders(page) -> None:
     page.locator("#view .row__open").first.click()
     status = page.locator("#order-status")
     check(status.input_value() == "ordered", "詳細のステータスが注文済みではない")
+    check(page.locator("#order-image").get_attribute("src") == "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7",
+          "詳細に商品画像が無い")
+    check(page.locator(".product-photo-link").get_attribute("href") == "https://example.test/battery",
+          "商品画像が商品URLへ繋がっていない")
     save = page.locator("#order-status-save")
     check(save.is_disabled(), "変えていないのにステータスを更新できる")
     page.select_option("#order-status", "available")
@@ -289,7 +300,7 @@ def check_ta_orders(page) -> None:
           "0 件のときの見出しが違う")
     # 検索語は URL の q に残る。次の画面の readUrl が拾わないよう戻す。
     page.evaluate("() => history.replaceState(null, '', location.pathname + '?demo=1')")
-    print("  TA注文: 型番・ショップの表示 / 型番・ショップ・チームの検索 / ステータス更新")
+    print("  TA注文: 型番・ショップの表示 / 商品画像 / 型番・ショップ・チームの検索 / ステータス更新")
 
 
 # ── 貸出 ───────────────────────────────────────────

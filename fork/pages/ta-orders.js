@@ -23,6 +23,9 @@ const state = {
 };
 
 const numeric = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+const imageById = new Map();
+const imageWait = new Set();
+let imageObserver = null;
 
 export async function load(ctx, opts = {}) {
   return ctx.demo ? demoTaOrders(opts) : api.taOrders(opts);
@@ -73,6 +76,8 @@ export function render(data, ctx) {
       totalText: fmtYen(o.totalValue, o.total || '—'),
       quantityText: o.quantity
         || (numeric(o.quantityValue) != null ? String(o.quantityValue) : '—'),
+      productUrl: o.productUrl || '',
+      imageUrl: o.imageUrl || '',
       createdISO: o.createdAtISO ?? null,
       createdText: o.createdAt || fmtDate(o.createdAtISO)
     };
@@ -250,9 +255,11 @@ export function render(data, ctx) {
           cells: [
             {
               label: '商品',
-              value: o.shopName
-                ? [o.product, h('span', { class: 'cell__sub', text: o.shopName })]
-                : o.product
+              value: h('span', { class: 'product' },
+                productThumb(o),
+                h('span', { class: 'product__text' },
+                  o.product,
+                  o.shopName ? h('span', { class: 'cell__sub', text: o.shopName }) : null))
             },
             {
               label: '型番',
@@ -294,6 +301,91 @@ export function render(data, ctx) {
       h('div', { class: `summary__item ${extra}`.trim() },
         h('dt', { class: 'summary__label', text: label }),
         h('dd', { class: 'summary__value', text: String(value) }))));
+    watchImages();
+  }
+
+  function knownImage(o) {
+    return imageById.get(o.id) || {
+      productUrl: o.productUrl || null,
+      imageUrl: o.imageUrl || null
+    };
+  }
+
+  function productThumb(o) {
+    const src = knownImage(o).imageUrl || '';
+    return h('img', {
+      class: 'product-thumb',
+      alt: '',
+      dataset: { orderImage: o.id },
+      src: src || null,
+      hidden: !src,
+      loading: 'lazy',
+      onerror: (e) => { e.currentTarget.hidden = true; }
+    });
+  }
+
+  function applyImage(id, record) {
+    const src = record?.imageUrl || '';
+    const url = record?.productUrl || '';
+    document.querySelectorAll(`img[data-order-image="${CSS.escape(id)}"]`).forEach((img) => {
+      if (src) {
+        img.src = src;
+        img.hidden = false;
+      }
+      if (!url || img.id !== 'order-image') return;
+      const link = img.closest('a');
+      if (link) {
+        link.href = url;
+        return;
+      }
+      const anchor = h('a', {
+        class: 'product-photo-link',
+        href: url,
+        target: '_blank',
+        rel: 'noopener noreferrer'
+      });
+      img.replaceWith(anchor);
+      anchor.append(img);
+    });
+  }
+
+  async function requestImages(ids) {
+    const want = [...new Set(ids)].filter((id) => id && !imageById.has(id) && !imageWait.has(id));
+    if (!want.length || ctx.demo) return;
+    want.forEach((id) => imageWait.add(id));
+    try {
+      for (let i = 0; i < want.length; i += 8) {
+        const chunk = want.slice(i, i + 8);
+        const data = await api.taOrderImages(chunk);
+        for (const id of chunk) {
+          const record = data?.images?.[id] || { productUrl: null, imageUrl: null };
+          imageById.set(id, record);
+          applyImage(id, record);
+        }
+      }
+    } catch {
+      // 画像が取れなくても一覧は残す
+    } finally {
+      want.forEach((id) => imageWait.delete(id));
+    }
+  }
+
+  function watchImages() {
+    imageObserver?.disconnect();
+    if (ctx.demo) return;
+    const pending = [...listHost.querySelectorAll('img[data-order-image]')]
+      .filter((img) => !img.getAttribute('src'));
+    if (!pending.length) return;
+    imageObserver = new IntersectionObserver((entries) => {
+      const ids = [];
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        imageObserver.unobserve(entry.target);
+        if (entry.target.dataset.orderImage) ids.push(entry.target.dataset.orderImage);
+      }
+      if (ids.length) requestImages(ids);
+    }, { rootMargin: '240px' });
+    pending.forEach((img) => imageObserver.observe(img));
   }
 
   function resetFilters() {
@@ -405,6 +497,7 @@ export function render(data, ctx) {
       eyebrow: 'TA注文',
       title: o.product,
       body: [
+        productPhoto(o),
         editor,
         metaList([
           ['商品', o.product || '—'],
@@ -439,6 +532,28 @@ export function render(data, ctx) {
       }
     });
 
+    if (!o.imageUrl && !imageById.has(o.id)) requestImages([o.id]);
     if (!focus) document.activeElement?.blur?.();
+  }
+
+  function productPhoto(o) {
+    const record = knownImage(o);
+    const src = record.imageUrl || '';
+    const img = h('img', {
+      class: 'product-photo',
+      id: 'order-image',
+      alt: o.product || '商品画像',
+      dataset: { orderImage: o.id },
+      src: src || null,
+      hidden: !src,
+      onerror: (e) => { e.currentTarget.hidden = true; }
+    });
+    if (!record.productUrl) return img;
+    return h('a', {
+      class: 'product-photo-link',
+      href: record.productUrl,
+      target: '_blank',
+      rel: 'noopener noreferrer'
+    }, img);
   }
 }
