@@ -201,6 +201,7 @@ export const PAGE_CACHE_PATHS = [
   '/dashboard',
   '/reports',
   '/orders',
+  '/ta/orders',
   '/equipments',
   '/loans',
   '/notifications',

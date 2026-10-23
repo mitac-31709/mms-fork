@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+<body>
+<nav>
+  <a href="/ta/orders">注文</a>
+</nav>
+<main>
+  <h1 class="text-2xl font-bold">注文管理</h1>
+  <form action="/ta/orders" method="get">
+    <select name="status" id="status">
+      <option value="">すべて</option>
+      <option value="pending">保留中</option>
+      <option value="ordered">注文済み</option>
+      <option value="available">受取可能</option>
+      <option value="received">受取済み</option>
+      <option value="cancelled">キャンセル済み</option>
+    </select>
+    <select name="team_id" id="team_id">
+      <option value="">すべて</option>
+      <option value="team-a">10: 未定</option>
+      <option value="team-b">16: A4</option>
+    </select>
+  </form>
+  <table>
+    <thead>
+      <tr>
+        <th><input type="checkbox" data-action="change->ta-order-bulk#toggleSelectAll"></th>
+        <th><span>商品</span></th>
+        <th><span>チーム</span></th>
+        <th data-column="unit_price"><button data-column="unit_price"><span>単価</span></button></th>
+        <th><button data-column="quantity"><span>数量</span></button></th>
+        <th><button data-column="total_price"><span>合計</span></button></th>
+        <th><span>ステータス</span></th>
+        <th><span>作成日時</span></th>
+        <th><span>操作</span></th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr id="order_60d01939-3c2b-4d5c-a4aa-2966f2b12d9e">
+        <td><input type="checkbox" data-order-id="60d01939-3c2b-4d5c-a4aa-2966f2b12d9e"></td>
+        <td>
+          <div>
+            <span class="font-semibold">アルカリ乾電池 単3形</span>
+            <div><span>モノタロウ</span></div>
+            <div><span>YSLR6K/4S</span></div>
+          </div>
+        </td>
+        <td>
+          <div>1</div>
+          <span>16: A4</span>
+        </td>
+        <td><div>¥315</div></td>
+        <td><span>1個</span></td>
+        <td><div>¥315</div></td>
+        <td><span><span>📋</span>注文済み</span></td>
+        <td><div>10/22 16:13</div></td>
+        <td><a href="/ta/orders/60d01939-3c2b-4d5c-a4aa-2966f2b12d9e/edit">編集</a></td>
+      </tr>
+      <tr id="order_add58cdd-1b14-4357-b746-27e4e6ab1650">
+        <td><input type="checkbox" data-order-id="add58cdd-1b14-4357-b746-27e4e6ab1650"></td>
+        <td>
+          <span class="font-semibold">USB 変換アダプタ</span>
+          <div><span>ショップ: Amazon</span></div>
+          <div><span>型番: -</span></div>
+        </td>
+        <td><span>10: 未定</span></td>
+        <td>¥0</td>
+        <td>2個</td>
+        <td>¥0</td>
+        <td><span>受取可能</span></td>
+        <td>2026/10/01 16:19</td>
+        <td>編集</td>
+      </tr>
+    </tbody>
+  </table>
+  <div id="order_card_should-not-be-counted">カードは数えない</div>
+  <div>
+    <span class="font-medium">1</span> 〜 <span class="font-medium">2</span> 件を表示
+    (全 <span class="font-semibold">2</span> 件中)
+  </div>
+</main>
+</body>
+</html>

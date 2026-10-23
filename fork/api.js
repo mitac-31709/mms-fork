@@ -57,6 +57,7 @@ export const api = {
     body: JSON.stringify({ fieldName, content })
   }),
   orders: (opts) => request('/api/orders', opts),
+  taOrders: (opts) => request('/api/ta/orders', opts),
   equipments: (opts) => request('/api/equipments', opts),
   loans: (opts) => request('/api/loans', opts),
   notifications: (opts) => request('/api/notifications', opts),

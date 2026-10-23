@@ -18,7 +18,8 @@ import { dirname, join } from 'node:path';
 
 import {
   parseUser, parseDashboard, parseOrders, parseOrderRows,
-  parseEquipments, parseLoans, parseNotifications, toNumber
+  parseEquipments, parseLoans, parseNotifications, toNumber,
+  parseTaOrders, taPageCount, readOrderProductCell
 } from '../src/parse-pages.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -53,8 +54,18 @@ test('実 HTML からダッシュボードの 3 行を取れる', () => {
   assert.deepEqual(parseDashboard(dashboard), {
     heading: 'ダッシュボード',
     team: 'チーム: 10(未定)',
-    notice: '調整中'
+    notice: '調整中',
+    canTa: false
   });
+});
+
+test('ナビに /ta/orders があるときだけ canTa', () => {
+  assert.equal(parseDashboard(dashboard).canTa, false);
+  const withTa = dashboard.replace(
+    'href="/orders"',
+    'href="/ta/orders"'
+  );
+  assert.equal(parseDashboard(withTa).canTa, true);
 });
 
 // ── 注文 ──
@@ -354,7 +365,9 @@ test('通知の項目を取れる（合成した項目で検証）', () => {
 
 test('見つからない項目は null（形を埋めるために値を作らない）', () => {
   const blank = '<main></main>';
-  assert.deepEqual(parseDashboard(blank), { heading: null, team: null, notice: null });
+  assert.deepEqual(parseDashboard(blank), {
+    heading: null, team: null, notice: null, canTa: false
+  });
   assert.deepEqual(parseOrders(blank), { columns: [], empty: null, orders: [] });
   assert.deepEqual(parseEquipments(blank),
     { heading: null, lede: null, empty: null, equipments: [] });
@@ -397,4 +410,67 @@ test('印の無い通知は器の <li> から拾い、id は null にする', ()
   assert.deepEqual(parseNotifications(unmarked).notifications, [
     { id: null, title: 'お知らせ', body: '本文', at: null, atISO: null, read: null }
   ]);
+});
+
+// ── TA の注文（2026-10-23 の実画面に合わせた器） ──
+
+const taOrders = readFileSync(join(here, 'fixtures/ta-orders.html'), 'utf8');
+
+test('TA 注文は型番・ショップ・チームを分けて取る', () => {
+  const parsed = parseTaOrders(taOrders);
+  assert.equal(parsed.access, 'ok');
+  assert.equal(parsed.canTa, true);
+  assert.equal(parsed.heading, '注文管理');
+  assert.deepEqual(parsed.columns.map((c) => c.label),
+    ['商品', 'チーム', '単価', '数量', '合計', 'ステータス', '作成日時']);
+  assert.equal(parsed.total, 2);
+  assert.equal(parsed.orders.length, 2);
+  assert.deepEqual(parsed.statuses.map((s) => s.label),
+    ['保留中', '注文済み', '受取可能', '受取済み', 'キャンセル済み']);
+  assert.equal(parsed.teams[1].label, '16: A4');
+
+  const [first, second] = parsed.orders;
+  assert.equal(first.id, '60d01939-3c2b-4d5c-a4aa-2966f2b12d9e');
+  assert.equal(first.product, 'アルカリ乾電池 単3形');
+  assert.equal(first.shopName, 'モノタロウ');
+  assert.equal(first.modelNumber, 'YSLR6K/4S');
+  assert.equal(first.team, '16: A4');
+  assert.equal(first.unitPrice, '¥315');
+  assert.equal(first.quantity, '1個');
+  assert.equal(first.quantityValue, 1);
+  assert.equal(first.totalValue, 315);
+  assert.equal(first.status, '注文済み');
+  assert.equal(first.createdAt, '10/22 16:13');
+  assert.equal(first.createdAtISO, null);
+  assert.equal(first.cells.length, parsed.columns.length);
+
+  assert.equal(second.product, 'USB 変換アダプタ');
+  assert.equal(second.shopName, 'Amazon');
+  assert.equal(second.modelNumber, null);
+  assert.equal(second.team, '10: 未定');
+  assert.equal(second.status, '受取可能');
+  assert.equal(second.unitPriceValue, 0);
+  assert.equal(second.totalValue, 0);
+  assert.equal(second.createdAtISO, '2026-10-01');
+});
+
+test('ダッシュボード HTML を TA 注文として読まない', () => {
+  const parsed = parseTaOrders(dashboard);
+  assert.equal(parsed.access, 'forbidden');
+  assert.equal(parsed.canTa, false);
+  assert.deepEqual(parsed.orders, []);
+});
+
+test('型番のハイフンとラベル付きセル', () => {
+  assert.deepEqual(readOrderProductCell(
+    '<span>品</span><span>ショップ: 秋月電子通商</span><span>型番: SPS-320N</span>'
+  ), { product: '品', shopName: '秋月電子通商', modelNumber: 'SPS-320N' });
+  assert.equal(readOrderProductCell('<span>品</span><span>型番: -</span>').modelNumber, null);
+});
+
+test('TA 注文のページ数は総数と 1 ページの件数から決める', () => {
+  assert.equal(taPageCount(241, 100), 3);
+  assert.equal(taPageCount(20, 20), 1);
+  assert.equal(taPageCount(null, 0), 1);
+  assert.equal(taPageCount(1000, 20, 15), 15);
 });

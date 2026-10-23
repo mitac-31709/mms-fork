@@ -25,12 +25,13 @@ import { h, panel, wirePanel } from './ui.js';
 
 import * as dashboard from './pages/dashboard.js';
 import * as orders from './pages/orders.js';
+import * as taOrders from './pages/ta-orders.js';
 import * as equipments from './pages/equipments.js';
 import * as loans from './pages/loans.js';
 import * as reports from './pages/reports.js';
 import * as notifications from './pages/notifications.js';
 
-const PAGES = [dashboard, orders, equipments, loans, reports, notifications];
+const PAGES = [dashboard, orders, taOrders, equipments, loans, reports, notifications];
 const BY_ROUTE = new Map(PAGES.map((p) => [p.meta.route, p]));
 const ALL_ROUTES = PAGES.map((p) => p.meta.route);
 const DEFAULT_ROUTE = '/dashboard';
@@ -107,6 +108,7 @@ function noteFor(data) {
 
 function paint(route, data) {
   if (window.__haltAppPaint) return;
+  if (typeof data?.canTa === 'boolean') setTaNav(data.canTa);
   const page = BY_ROUTE.get(route);
   if (!page || !data) return;
   const [kind, note] = noteFor(data);
@@ -158,6 +160,13 @@ function errorBlock(message, onRetry) {
 
 let renderToken = 0;
 let prefetchGen = 0;
+let taNavOn = false;
+
+function setTaNav(on) {
+  taNavOn = Boolean(on);
+  const item = document.getElementById('nav-ta-orders');
+  if (item) item.hidden = !taNavOn;
+}
 
 async function render(route) {
   const page = BY_ROUTE.get(route);
@@ -241,7 +250,8 @@ async function liveRefresh(route, token) {
 /** レールから行ける他画面を先に温める（メモリ + Worker キャッシュ）。 */
 function prefetchReachable(fromRoute) {
   const gen = ++prefetchGen;
-  const routes = reachableRoutes(ALL_ROUTES, fromRoute);
+  const routes = reachableRoutes(ALL_ROUTES, fromRoute)
+    .filter((r) => r !== '/ta/orders' || taNavOn);
 
   const run = async () => {
     for (const route of routes) {
@@ -296,6 +306,7 @@ function showApp(user) {
   el.app.hidden = false;
   el.userName.textContent = user?.name || '';
   el.userMeta.textContent = user?.badge ? `権限 ${user.badge}` : '';
+  if (user?.canTa) setTaNav(true);
   startNotifyWatcher();
 }
 

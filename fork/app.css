@@ -492,6 +492,7 @@ button { font: inherit; color: inherit; }
   align-items: flex-end;
   gap: var(--space-lg);
 }
+.summary--wrap { flex-wrap: wrap; }
 .summary__item { display: flex; flex-direction: column-reverse; gap: var(--space-3xs); }
 .summary__label {
   font-family: var(--font-mono);
@@ -522,6 +523,9 @@ button { font: inherit; color: inherit; }
 
 .field { display: flex; flex-direction: column; gap: var(--space-2xs); border: 0; min-width: 0; }
 .field--search { flex: 1 1 14rem; max-width: 22rem; }
+.field--team { flex: 1 1 12rem; max-width: 16rem; min-width: 0; }
+.field--team .select-wrap,
+.field--team .select { width: 100%; min-width: 0; max-width: 100%; }
 
 .field__label {
   font-family: var(--font-mono);
@@ -837,6 +841,11 @@ kbd {
 .table__th--title { width: auto; }
 .table__th--period  { width: 8.5rem; }
 .table__th--status  { width: 7rem; }
+.table__th--state   { width: 7.5rem; }
+.table__th--model   { width: 7.5rem; }
+.table__th--team    { width: 6.5rem; }
+.table__th--qty     { width: 4rem; }
+.table__th--when    { width: 7.25rem; }
 .table__th--due     { width: 9.5rem; }
 .table__th--created { width: 8rem; }
 
@@ -899,6 +908,12 @@ kbd {
   color: var(--color-ink-2);
 }
 .cell--num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cell--model {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+}
+.cell--wrap { overflow-wrap: anywhere; }
 .cell__sub {
   display: block;
   margin-top: var(--space-3xs);
@@ -1519,7 +1534,7 @@ body:has(.panel:not([hidden])) .toasts {
   .summary { gap: var(--space-md); }
   .board__layout { grid-template-columns: minmax(0, 1fr); }
 
-  .field--search { max-width: none; flex-basis: 100%; }
+  .field--search, .field--team { max-width: none; flex-basis: 100%; }
   .toolbar__count { margin-left: 0; padding-top: 0; }
 
   .table thead { display: none; }

@@ -217,6 +217,69 @@ def check_orders(page) -> None:
     print("  注文: 金額が読めない行 / 0 円 / 0 件")
 
 
+def check_ta_orders(page) -> None:
+    render(page, "ta-orders", wrap({
+        "canTa": True,
+        "heading": "注文管理",
+        "statuses": [
+            {"value": "ordered", "label": "注文済み"},
+            {"value": "available", "label": "受取可能"}
+        ],
+        "teams": [
+            {"value": "a", "label": "16: A4"},
+            {"value": "b", "label": "10: 未定"}
+        ],
+        "orders": [
+            {"id": "60d01939-3c2b-4d5c-a4aa-2966f2b12d9e",
+             "product": "アルカリ乾電池 単3形", "modelNumber": "YSLR6K/4S",
+             "shopName": "モノタロウ", "team": "16: A4",
+             "unitPrice": "¥315", "quantity": "1個", "total": "¥315",
+             "status": "注文済み", "createdAt": "10/22 16:13",
+             "unitPriceValue": 315, "quantityValue": 1, "totalValue": 315},
+            {"id": "add58cdd-1b14-4357-b746-27e4e6ab1650",
+             "product": "ドアセンサー", "modelNumber": "SPS-320N",
+             "shopName": "秋月電子通商", "team": "10: 未定",
+             "unitPrice": "¥400", "quantity": "1個", "total": "¥400",
+             "status": "受取可能", "createdAt": "10/22 15:54",
+             "unitPriceValue": 400, "quantityValue": 1, "totalValue": 400},
+            {"id": "d835bc9b-167e-4c36-9239-1117632edfa3",
+             "product": "USB 変換アダプタ", "modelNumber": None,
+             "shopName": "Amazon", "team": "10: 未定",
+             "unitPrice": "¥0", "quantity": "1個", "total": "¥0",
+             "status": "受取可能", "createdAt": "2026/10/01 16:19",
+             "createdAtISO": "2026-10-01",
+             "unitPriceValue": 0, "quantityValue": 1, "totalValue": 0}
+        ]
+    }))
+    body = page.inner_text("#view")
+    check("YSLR6K/4S" in body, "型番が一覧に出ていない")
+    check("モノタロウ" in body, "ショップが一覧に出ていない")
+    check("16: A4" in body, "チームが一覧に出ていない")
+    check(page.locator("#view th", has_text="型番").count() == 1, "型番の列見出しが無い")
+
+    page.fill("#q", "SPS-320N")
+    rows = page.locator("#view .row")
+    check(rows.count() == 1, f"型番検索で {rows.count()} 件（1 件を期待）")
+    check("ドアセンサー" in rows.nth(0).inner_text(), "型番検索が別の行を残している")
+
+    page.fill("#q", "秋月")
+    check(page.locator("#view .row").count() == 1, "ショップ名で絞れていない")
+
+    page.fill("#q", "")
+    page.select_option("#team", "16: A4")
+    check(page.locator("#view .row").count() == 1, "チームで絞れていない")
+    check("アルカリ乾電池" in page.locator("#view .row").nth(0).inner_text(),
+          "チーム絞り込みの行が違う")
+
+    page.select_option("#team", "all")
+    page.fill("#q", "存在しない型番")
+    check(page.locator("#view .empty__title").inner_text() == "条件に合う注文がありません",
+          "0 件のときの見出しが違う")
+    # 検索語は URL の q に残る。次の画面の readUrl が拾わないよう戻す。
+    page.evaluate("() => history.replaceState(null, '', location.pathname + '?demo=1')")
+    print("  TA注文: 型番・ショップの表示 / 型番・ショップ・チームの検索")
+
+
 # ── 貸出 ───────────────────────────────────────────
 def check_loans(page) -> None:
     render(page, "loans", wrap({
@@ -378,6 +441,7 @@ def main() -> int:
         check_notifications(page)
         check_equipments(page)
         check_orders(page)
+        check_ta_orders(page)
         check_loans(page)
         check_dashboard(page)
         check_reports(page)

@@ -24,6 +24,11 @@ export const PAGE_EXPECTATIONS = {
     columns: ['商品', '単価', '数量', '合計', 'ステータス', '作成日'],
     itemsKey: 'orders'
   },
+  '/ta/orders': {
+    kind: 'table',
+    columns: ['商品', 'チーム', '単価', '数量', '合計', 'ステータス', '作成日時'],
+    itemsKey: 'orders'
+  },
   '/equipments': {
     kind: 'list',
     heading: '利用可能な機材',

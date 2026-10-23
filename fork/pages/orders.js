@@ -528,7 +528,7 @@ export function render(data, ctx) {
       panel.close();
       toasts.push(`「${fields.productName}」を作成しました`);
       // 一覧・ダッシュボードのメモリを捨てて元アプリから取り直す。
-      ctx.invalidate?.(['/orders', '/dashboard']);
+      ctx.invalidate?.(['/orders', '/ta/orders', '/dashboard']);
       ctx.reload();
     } catch (e) {
       showError(e.message || '注文を作成できませんでした');

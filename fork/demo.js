@@ -11,7 +11,7 @@
  */
 
 export const DEMO_TODAY = '2026-08-05';
-export const DEMO_USER = { name: '三谷 慧介', badge: 'U' };
+export const DEMO_USER = { name: '三谷 慧介', badge: 'U', canTa: true };
 
 /** デモ用。本番（45s）より短くし、キャッシュ→裏更新をすぐ確認できるようにする。 */
 export const DEMO_FRESH_MS = 8_000;
@@ -186,7 +186,8 @@ function buildDashboard({ generation = 1 } = {}) {
     heading: 'ダッシュボード',
     team: 'チーム: 10(未定)',
     // 再取得のたびに文言が変わり、ライブ更新が見える
-    notice: generation <= 1 ? '調整中' : `調整中 · デモ再取得 #${generation}`
+    notice: generation <= 1 ? '調整中' : `調整中 · デモ再取得 #${generation}`,
+    canTa: true
   };
 }
 
@@ -236,6 +237,72 @@ function buildOrders({ generation = 1 } = {}) {
 
 export function demoOrders(opts = {}) {
   return cached('orders', buildOrders, opts);
+}
+
+// ── TA の注文 ──────────────────────────────────────
+const TA_ORDER_SEED = [
+  ['60d01939-3c2b-4d5c-a4aa-2966f2b12d9e', 'アルカリ乾電池 単3形', 'YSLR6K/4S', 'モノタロウ', '16: A4', 315, 1, '10/22 16:13', '注文済み'],
+  ['add58cdd-1b14-4357-b746-27e4e6ab1650', 'ドアセンサースイッチ SPS-320', 'SPS-320N', '秋月電子通商', '16: A4', 400, 1, '10/22 15:54', '注文済み'],
+  ['d835bc9b-167e-4c36-9239-1117632edfa3', 'USB 変換アダプタ', null, 'Amazon', '10: 未定', 562, 1, '2026/10/01 16:19', '受取可能'],
+  ['09e6d85f-04ad-40c7-be06-e59798c914ae', 'M4 六角穴付ボルト', 'M4-12', 'モノタロウ', '10: 未定', 980, 3, '10/18 09:02', '受取済み']
+];
+
+const TA_STATUSES = [
+  { value: 'pending', label: '保留中' },
+  { value: 'ordered', label: '注文済み' },
+  { value: 'available', label: '受取可能' },
+  { value: 'received', label: '受取済み' },
+  { value: 'cancelled', label: 'キャンセル済み' }
+];
+
+function buildTaOrders({ generation = 1 } = {}) {
+  const orders = TA_ORDER_SEED.map(([
+    id, product, modelNumber, shopName, team, unitPrice, quantity, created, status
+  ]) => ({
+    id,
+    product,
+    modelNumber,
+    shopName,
+    team,
+    unitPrice: `¥${unitPrice.toLocaleString('ja-JP')}`,
+    quantity: `${quantity}個`,
+    total: `¥${(unitPrice * quantity).toLocaleString('ja-JP')}`,
+    status,
+    createdAt: created,
+    createdAtISO: created.startsWith(`${YEAR}/`) ? iso(`${YEAR}-10-01`) : null,
+    unitPriceValue: unitPrice,
+    quantityValue: quantity,
+    totalValue: unitPrice * quantity
+  }));
+
+  return {
+    access: 'ok',
+    canTa: true,
+    heading: '注文管理',
+    columns: [
+      { label: '商品' }, { label: 'チーム' }, { label: '単価' }, { label: '数量' },
+      { label: '合計' }, { label: 'ステータス' }, { label: '作成日時' }
+    ],
+    statuses: TA_STATUSES,
+    teams: [
+      { value: 'team-10', label: '10: 未定' },
+      { value: 'team-16', label: '16: A4' },
+      { value: 'team-21', label: '21: Maison Innovation（メゾンイノベーション）' }
+    ],
+    total: orders.length,
+    truncated: false,
+    empty: {
+      title: '注文がありません',
+      body: generation <= 1
+        ? ''
+        : `（デモ再取得 #${generation}）`
+    },
+    orders
+  };
+}
+
+export function demoTaOrders(opts = {}) {
+  return cached('ta-orders', buildTaOrders, opts);
 }
 
 // ── 機材 ───────────────────────────────────────────

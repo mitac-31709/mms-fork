@@ -4,6 +4,7 @@
  * - `DELETE /api/session`  ログアウトする
  * - `GET  /api/me`         ログイン中の利用者
  * - `GET  /api/<page>`     元アプリの画面を JSON にして返す
+ * - `GET  /api/ta/orders`  TA の注文（型番・ショップ付き。ページをまとめて返す）
  * - `GET  /api/reports/:id` 週報の詳細（`/reports/:id/edit` の HTML。本文項目は編集画面にある）
  * - `PATCH /api/reports/:id` 週報の 1 項目を元アプリへ保存する（auto_save / フォーム）
  * - `POST /api/orders`     新しい注文を元アプリへ作る
@@ -27,7 +28,7 @@ import {
 } from './background.js';
 import { forwardDiscord, sanitizeDiscordBody, validateWebhookUrl } from './discord.js';
 import {
-  ApiError, createOrder, html, saveReportField, signIn, signOut, unreadCount
+  ApiError, createOrder, get, html, saveReportField, signIn, signOut, unreadCount
 } from './meister.js';
 import {
   FRESH_MS, PAGE_CACHE_PATHS, STALE_WHILE_REVALIDATE_MS,
@@ -35,8 +36,8 @@ import {
 } from './page-cache.js';
 import { parseIdToken, parseReportsPage, parseReportDetail } from './parse.js';
 import {
-  parseDashboard, parseEquipments, parseLoans, parseNotifications,
-  parseOrders, parseUser
+  canAccessTa, parseDashboard, parseEquipments, parseLoans, parseNotifications,
+  parseOrders, parseTaOrders, parseUser, taPageCount
 } from './parse-pages.js';
 import { buildParseAlertPayload, inspectParse } from './parse-guard.js';
 import {
@@ -45,6 +46,15 @@ import {
 import {
   buildSubscription, deleteSubscription, getSubscription, putSubscription
 } from './subscribe.js';
+
+function sessionPayload(session, cookie) {
+  return {
+    cookie,
+    name: session?.name ?? null,
+    badge: session?.badge ?? null,
+    canTa: session?.canTa === true
+  };
+}
 
 const json = (data, status = 200, headers = {}) =>
   new Response(JSON.stringify(data, null, 2), {
@@ -137,6 +147,85 @@ async function pageLive(cookie, path, parse, env) {
   };
 }
 
+/** TA の注文を、ページをまたいで 1 つの JSON にする。
+ *  型番とショップは各行の商品セルにある。検索はフォーク側で行うので、
+ *  表示中の 20 件だけだと型番で見つからない。 */
+async function taOrdersLive(cookie, env) {
+  const perPage = 100;
+  const firstPath = `/ta/orders?page=1&per_page=${perPage}`;
+  const first = await get(cookie, firstPath);
+  if (first.redirectedTo) {
+    throw new ApiError(403, 'TA の注文を見る権限がありません');
+  }
+  if (first.status !== 200) {
+    throw new ApiError(502, `元アプリの /ta/orders が ${first.status} を返しました`
+      + (first.redirectedTo ? `（→ ${first.redirectedTo}）` : ''));
+  }
+
+  let parsed;
+  try {
+    parsed = parseTaOrders(first.body);
+  } catch (e) {
+    await alertParseAnomaly(env, {
+      path: '/ta/orders',
+      origin: `https://meister.tokyo-ct.org${firstPath}`,
+      reasons: ['パーサが例外を投げた'],
+      html: first.body,
+      error: e.message || String(e)
+    });
+    throw new ApiError(502, `元アプリの /ta/orders を読めませんでした（${e.message || e}）`);
+  }
+
+  if (parsed.access === 'forbidden') {
+    throw new ApiError(403, 'TA の注文を見る権限がありません');
+  }
+
+  const check = inspectParse('/ta/orders', first.body, parsed);
+  if (!check.ok) {
+    await alertParseAnomaly(env, {
+      path: '/ta/orders',
+      origin: `https://meister.tokyo-ct.org${firstPath}`,
+      reasons: check.reasons,
+      html: first.body
+    });
+  }
+
+  const orders = [...parsed.orders];
+  const seen = new Set(orders.map((o) => (o.id != null ? String(o.id) : null)).filter(Boolean));
+  const pages = taPageCount(parsed.total, parsed.orders.length);
+  if (pages > 1) {
+    const rest = await Promise.all(
+      Array.from({ length: pages - 1 }, (_, i) =>
+        get(cookie, `/ta/orders?page=${i + 2}&per_page=${perPage}`))
+    );
+    for (const res of rest) {
+      if (res.status !== 200 || !res.body) continue;
+      let page;
+      try {
+        page = parseTaOrders(res.body);
+      } catch {
+        continue;
+      }
+      for (const o of page.orders) {
+        const key = o.id != null ? String(o.id) : null;
+        if (key && seen.has(key)) continue;
+        if (key) seen.add(key);
+        orders.push(o);
+      }
+    }
+  }
+
+  return {
+    source: 'live',
+    origin: 'https://meister.tokyo-ct.org/ta/orders',
+    fetchedAt: new Date().toISOString(),
+    parseWarning: check.ok ? null : check.reasons,
+    ...parsed,
+    orders,
+    truncated: parsed.total != null && orders.length < parsed.total
+  };
+}
+
 /** 利用者区画のキャッシュ付き。遅延はミス時だけ。 */
 async function page(cookie, path, parse, env, ctx, { refresh = false } = {}) {
   const userKey = await userCacheKey(cookie);
@@ -195,15 +284,16 @@ async function handleSessionCreate(request, env) {
   const password = String(body?.password ?? '');
   const cookie = await signIn(email, password);
 
-  let user = { name: null, badge: null };
+  let user = { name: null, badge: null, canTa: false };
   try {
-    user = parseUser(await html(cookie, '/dashboard')) || user;
+    const dash = await html(cookie, '/dashboard');
+    user = { ...user, ...(parseUser(dash) || {}), canTa: canAccessTa(dash) };
   } catch {
     // 表示名が取れなくてもログインは成立させる
   }
 
   const token = await seal(
-    { cookie, name: user.name, badge: user.badge },
+    { cookie, name: user.name, badge: user.badge, canTa: user.canTa === true },
     env.SESSION_SECRET
   );
   return json({ user }, 200, { 'Set-Cookie': setCookieHeader(token) });
@@ -284,20 +374,13 @@ async function handleOrderCreate(request, env) {
   const result = await createOrder(session.cookie, body);
   const headers = {};
   if (result.cookie && result.cookie !== session.cookie) {
-    const token = await seal(
-      {
-        cookie: result.cookie,
-        name: session.name,
-        badge: session.badge
-      },
-      env.SESSION_SECRET
-    );
+    const token = await seal(sessionPayload(session, result.cookie), env.SESSION_SECRET);
     headers['Set-Cookie'] = setCookieHeader(token);
   }
 
-  // 注文一覧・ダッシュボードはすぐ古くなるので利用者区画だけ落とす。
+  // 注文一覧・ダッシュボード・TA の一覧はすぐ古くなるので利用者区画だけ落とす。
   const userKey = await userCacheKey(result.cookie || session.cookie);
-  await pageCache.invalidate(userKey, ['/orders', '/dashboard']);
+  await pageCache.invalidate(userKey, ['/orders', '/ta/orders', '/dashboard']);
 
   return json({
     ok: true,
@@ -327,14 +410,7 @@ async function handleReportFieldSave(request, env, rawId) {
 
   const headers = {};
   if (result.cookie && result.cookie !== session.cookie) {
-    const token = await seal(
-      {
-        cookie: result.cookie,
-        name: session.name,
-        badge: session.badge
-      },
-      env.SESSION_SECRET
-    );
+    const token = await seal(sessionPayload(session, result.cookie), env.SESSION_SECRET);
     headers['Set-Cookie'] = setCookieHeader(token);
   }
 
@@ -554,7 +630,26 @@ async function handleApi(request, url, env, ctx) {
   if (!session) return unauthorized();
 
   if (path === '/api/me') {
-    return json({ user: { name: session.name ?? null, badge: session.badge ?? null } });
+    return json({
+      user: {
+        name: session.name ?? null,
+        badge: session.badge ?? null,
+        canTa: session.canTa === true
+      }
+    });
+  }
+
+  if (path === '/api/ta/orders') {
+    const refresh = url.searchParams.get('refresh') === '1';
+    const userKey = await userCacheKey(session.cookie);
+    const data = await pageCache.load({
+      userKey,
+      path: '/ta/orders',
+      ctx: refresh ? null : ctx,
+      mode: refresh ? 'refresh' : 'swr',
+      fetchFresh: () => taOrdersLive(session.cookie, env)
+    });
+    return json(data);
   }
 
   const reportMatch = path.match(/^\/api\/reports\/([^/]+)$/);
