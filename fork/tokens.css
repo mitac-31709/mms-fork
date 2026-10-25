@@ -25,6 +25,18 @@
   --color-warn:       oklch(56%   0.15  45);
   --color-warn-bg:    oklch(96%   0.020 45);
 
+  /* 注文ステータス。色だけに意味を持たせず、statusPill がグリフを添える。 */
+  --color-status-pending:     oklch(52% 0.14 70);
+  --color-status-pending-bg:  oklch(96% 0.03 75);
+  --color-status-ordered:     oklch(48% 0.14 250);
+  --color-status-ordered-bg:  oklch(96% 0.025 250);
+  --color-status-available:   oklch(48% 0.12 195);
+  --color-status-available-bg: oklch(96% 0.025 195);
+  --color-status-received:    oklch(45% 0.11 155);
+  --color-status-received-bg: oklch(96% 0.025 155);
+  --color-status-cancelled:   oklch(46% 0.015 255);
+  --color-status-cancelled-bg: oklch(94% 0.006 254);
+
   /* アクセントの薄い面。選択行とセグメントの現在地に使う。 */
   --color-accent-bg:  oklch(96%   0.022 256);
 

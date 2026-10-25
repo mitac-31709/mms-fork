@@ -27,12 +27,42 @@ export function h(tag, attrs = {}, ...children) {
   return node;
 }
 
-/** ステータス。色だけに意味を持たせず、必ずグリフを添える。 */
+/** ステータス。色だけに意味を持たせず、必ずグリフを添える。
+ *  注文の語彙（保留中〜キャンセル済み）と週報の未完了/完了の両方に対応。 */
+const STATUS_TONES = {
+  完了: { tone: 'done', glyph: '✓' },
+  返却済み: { tone: 'done', glyph: '✓' },
+  既読: { tone: 'done', glyph: '✓' },
+  有効: { tone: 'done', glyph: '✓' },
+  準備完了: { tone: 'done', glyph: '✓' },
+  受取済み: { tone: 'received', glyph: '✓' },
+  保留中: { tone: 'pending', glyph: '●' },
+  注文済み: { tone: 'ordered', glyph: '▣' },
+  受取可能: { tone: 'available', glyph: '◇' },
+  キャンセル済み: { tone: 'cancelled', glyph: '×' },
+  無効: { tone: 'cancelled', glyph: '×' },
+  期限切れ: { tone: 'cancelled', glyph: '×' },
+  下書き: { tone: 'open', glyph: '○' },
+  未完了: { tone: 'open', glyph: '○' }
+};
+
 export function statusPill(value, { doneWhen = ['完了', '返却済み', '既読'] } = {}) {
   const label = value || '—';
-  const done = doneWhen.includes(label);
-  return h('span', { class: `status ${done ? 'status--done' : 'status--open'}` },
-    h('span', { class: 'status__glyph', 'aria-hidden': 'true', text: done ? '✓' : '○' }),
+  const known = STATUS_TONES[label];
+  let tone;
+  let glyph;
+  if (known) {
+    tone = known.tone;
+    glyph = known.glyph;
+  } else if (doneWhen.includes(label)) {
+    tone = 'done';
+    glyph = '✓';
+  } else {
+    tone = 'open';
+    glyph = '○';
+  }
+  return h('span', { class: `status status--${tone}` },
+    h('span', { class: 'status__glyph', 'aria-hidden': 'true', text: glyph }),
     label);
 }
 
@@ -60,8 +90,9 @@ export function emptyBlock({ title, body, actionLabel, onAction }) {
 /** データ表。列見出しは押せば並べ替わる。
  *  columns: [{ key, label, className }]
  *  rows:    [{ id, selected, onOpen, cells: [{ label, value, className, tone }] }]
+ *  tableClass: 表全体の補助クラス（列の多い表の `.table--auto` など）
  */
-export function dataTable({ columns, rows, sort, onSort, caption }) {
+export function dataTable({ columns, rows, sort, onSort, caption, tableClass }) {
   const headCells = columns.map((c) => {
     const th = h('th', {
       scope: 'col',
@@ -106,7 +137,7 @@ export function dataTable({ columns, rows, sort, onSort, caption }) {
     return tr;
   }));
 
-  return h('table', { class: 'table', id: 'table' },
+  return h('table', { class: ['table', tableClass].filter(Boolean).join(' '), id: 'table' },
     caption && h('caption', { class: 'sr-only', text: caption }),
     h('thead', {}, h('tr', {}, headCells)),
     body);
@@ -117,6 +148,20 @@ export function metaList(entries) {
   return h('dl', { class: 'meta' }, entries.map(([key, value]) => h('div', { class: 'meta__row' },
     h('dt', { class: 'meta__key', text: key }),
     h('dd', { class: 'meta__val' }, value instanceof Node ? value : String(value ?? '—')))));
+}
+
+/** 注文ステータス履歴。元アプリの Timeline を縦の手順として出す。
+ *  entries: [{ title, detail }]。空なら null（呼び出し側はそのまま子にできる）。 */
+export function historyTimeline(entries) {
+  const items = (entries || []).filter((e) => e && (e.title || e.detail));
+  if (!items.length) return null;
+  return h('div', { class: 'field' },
+    h('p', { class: 'field__label', text: '注文ステータス履歴' }),
+    h('ol', { class: 'tl' }, items.map((e) => h('li', { class: 'tl__item' },
+      h('span', { class: 'tl__dot', 'aria-hidden': 'true' }),
+      h('div', { class: 'tl__body' },
+        e.title ? h('p', { class: 'tl__title', text: e.title }) : null,
+        e.detail ? h('p', { class: 'tl__detail', text: e.detail }) : null)))));
 }
 
 // ── トースト ────────────────────────────────────────

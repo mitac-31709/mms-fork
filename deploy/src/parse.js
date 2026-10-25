@@ -505,6 +505,33 @@ function parseTimeline(html) {
   return out;
 }
 
+/** 注文詳細の「注文ステータス履歴」。
+ *
+ *  週報の timeline（`.timeline-item`）とは器が違う。注文は
+ *  `注文ステータス履歴` の見出しの後に `ml-4 flex-1` の塊が並び、
+ *  各塊が太字タイトル + 細字補足の 2 段。コメント節までを範囲にする。
+ *  項目名は作らず [{ title, detail }] の順序のまま返す。
+ */
+export function parseOrderHistory(html) {
+  const src = String(html || '');
+  const head = src.search(/注文ステータス履歴/);
+  if (head < 0) return [];
+  let tail = src.slice(head);
+  const end = tail.search(/<!--\s*Comments|コメント<\/span>|コメント<\/h3>|id="comments"/);
+  if (end >= 0) tail = tail.slice(0, end);
+  const out = [];
+  const re = /<div\b[^>]*class="[^"]*\bml-4\b[^"]*\bflex-1\b[^"]*"[^>]*>([\s\S]*?)<\/div>/gi;
+  let m;
+  while ((m = re.exec(tail))) {
+    const ps = [...m[1].matchAll(/<p\b[^>]*>([\s\S]*?)<\/p>/gi)]
+      .map((x) => text(x[1]))
+      .filter(Boolean);
+    if (!ps.length) continue;
+    out.push({ title: ps[0], detail: ps[1] || null });
+  }
+  return out;
+}
+
 /** `/reports/:id` または `/reports/:id/edit` の詳細。
  *  本文項目（`data-field-name`）は編集画面にある。詳細画面はタイトル・
  *  提出期限・作業期間・コメント欄で、編集フォームは持たない。
