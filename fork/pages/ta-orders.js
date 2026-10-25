@@ -393,12 +393,13 @@ export function render(data, ctx) {
 
   function productThumb(o) {
     const src = knownImage(o).imageUrl || '';
+    // hidden だと display:none で面積が 0 になり IntersectionObserver が発火しない。
+    // 未取得のうちは CSS の枠だけ見せ、失敗したときだけ隠す。
     return h('img', {
       class: 'product-thumb',
       alt: '',
       dataset: { orderImage: o.id },
       src: src || null,
-      hidden: !src,
       loading: 'lazy',
       referrerpolicy: 'no-referrer',
       onerror: (e) => { e.currentTarget.hidden = true; }
