@@ -2,6 +2,7 @@
 
 import { api } from '../api.js';
 import { demoTaUsers } from '../demo.js';
+import { SEARCH_HINT, matchesSearch } from '../search.js';
 import { dataTable, emptyBlock, h, statusPill } from '../ui.js';
 
 export const meta = {
@@ -46,8 +47,11 @@ export function render(data, ctx) {
         h('label', { class: 'field__label', for: 'q', text: '名前・メールで絞り込み' }),
         h('input', {
           class: 'input', type: 'search', id: 'q', value: state.q,
+          placeholder: '名前 OR メール', autocomplete: 'off',
+          'aria-describedby': 'q-hint',
           oninput: (e) => { state.q = e.target.value; paint(); syncUrl(); }
-        })),
+        }),
+        h('p', { class: 'field__hint', id: 'q-hint', text: SEARCH_HINT }))),
       h('div', { class: 'field field--status' },
         h('label', { class: 'field__label', for: 'status', text: '状態' }),
         h('span', { class: 'select-wrap' }, h('select', {
@@ -75,13 +79,11 @@ export function render(data, ctx) {
   }
 
   function visible() {
-    const q = state.q.trim().toLowerCase();
     const dir = state.sortDir === 'asc' ? 1 : -1;
     return rows
       .filter((u) => {
         if (state.status !== 'all' && u.status !== state.status) return false;
-        if (q && !(`${u.name} ${u.email} ${u.team}`).toLowerCase().includes(q)) return false;
-        return true;
+        return matchesSearch(`${u.name} ${u.email} ${u.team}`, state.q);
       })
       .sort((a, b) => {
         const x = a[state.sortKey];

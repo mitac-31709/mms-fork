@@ -3,6 +3,7 @@
 import { api } from '../api.js';
 import { demoTaTeam, demoTaTeams } from '../demo.js';
 import { fmtYen, sameId } from '../format.js';
+import { SEARCH_HINT, matchesSearch } from '../search.js';
 import { dataTable, emptyBlock, h, metaList, panel } from '../ui.js';
 
 export const meta = {
@@ -83,8 +84,11 @@ export function render(data, ctx) {
         h('label', { class: 'field__label', for: 'q', text: 'チーム名で絞り込み' }),
         h('input', {
           class: 'input', type: 'search', id: 'q', value: state.q,
+          placeholder: 'チーム名', autocomplete: 'off',
+          'aria-describedby': 'q-hint',
           oninput: (e) => { state.q = e.target.value; paint(); syncUrl(); }
-        })),
+        }),
+        h('p', { class: 'field__hint', id: 'q-hint', text: SEARCH_HINT }))),
       h('div', { class: 'field field--sort' },
         h('label', { class: 'field__label', for: 'sort', text: '並べ替え' }),
         h('span', { class: 'select-wrap' }, sortSelect)),
@@ -106,10 +110,9 @@ export function render(data, ctx) {
   }
 
   function visible() {
-    const q = state.q.trim().toLowerCase();
     const dir = state.sortDir === 'asc' ? 1 : -1;
     return rows
-      .filter((t) => !q || t.name.toLowerCase().includes(q))
+      .filter((t) => matchesSearch(t.name, state.q))
       .sort((a, b) => {
         const x = a[state.sortKey];
         const y = b[state.sortKey];

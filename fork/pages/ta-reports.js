@@ -3,6 +3,7 @@
 import { api } from '../api.js';
 import { DEMO_TODAY, demoTaReport, demoTaReports } from '../demo.js';
 import { fmtDate, sameId } from '../format.js';
+import { SEARCH_HINT, matchesSearch } from '../search.js';
 import { dataTable, dueCell, emptyBlock, h, metaList, panel, statusPill } from '../ui.js';
 
 export const meta = {
@@ -146,8 +147,11 @@ export function render(data, ctx) {
         h('label', { class: 'field__label', for: 'q', text: 'タイトルで絞り込み' }),
         h('input', {
           class: 'input', type: 'search', id: 'q', value: state.q,
+          placeholder: 'タイトル OR チーム', autocomplete: 'off',
+          'aria-describedby': 'q-hint',
           oninput: (e) => { state.q = e.target.value; paint(); syncUrl(); }
-        })),
+        }),
+        h('p', { class: 'field__hint', id: 'q-hint', text: SEARCH_HINT }))),
       h('div', { class: 'field field--status' },
         h('label', { class: 'field__label', for: 'status', text: 'ステータス' }),
         h('span', { class: 'select-wrap' }, h('select', {
@@ -172,14 +176,12 @@ export function render(data, ctx) {
   }
 
   function visible() {
-    const q = state.q.trim().toLowerCase();
     const dir = state.sortDir === 'asc' ? 1 : -1;
     return rows
       .filter((r) => {
         if (state.status !== 'all' && r.status !== state.status) return false;
         if (state.team !== 'all' && r.team !== state.team) return false;
-        if (q && !(`${r.title} ${r.team}`).toLowerCase().includes(q)) return false;
-        return true;
+        return matchesSearch(`${r.title} ${r.team}`, state.q);
       })
       .sort((a, b) => {
         const key = state.sortKey;
