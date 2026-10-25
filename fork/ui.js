@@ -150,6 +150,27 @@ export function metaList(entries) {
     h('dd', { class: 'meta__val' }, value instanceof Node ? value : String(value ?? '—')))));
 }
 
+/** 商品URLをリンク1つで出す。表示はホスト名だけにし、URL 全体は title に置く。
+ *  http(s) でなければ文字のまま返す。 */
+export function productLink(raw) {
+  const value = String(raw ?? '').trim();
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    return value || '—';
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return value;
+  return h('a', {
+    class: 'product-link',
+    href: url.href,
+    target: '_blank',
+    rel: 'noopener noreferrer',
+    title: url.href,
+    text: `${url.hostname.replace(/^www\./, '')} で開く`
+  });
+}
+
 /** 注文ステータス履歴。元アプリの Timeline を縦の手順として出す。
  *  entries: [{ title, detail }]。空なら null（呼び出し側はそのまま子にできる）。 */
 export function historyTimeline(entries) {

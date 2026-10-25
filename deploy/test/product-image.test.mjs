@@ -56,3 +56,11 @@ test('詳細 HTML の商品URLを取る', () => {
   );
   assert.equal(parseTaProductUrl('<p>ショップ</p>'), null);
 });
+
+test('800 文字を超える長い商品URLも取る', () => {
+  const long = `https://www.amazon.co.jp/dp/B08X6Z2BLL/ref=sr_1_1?${'q=%E3%83%AA'.repeat(120)}`;
+  const html = `<label class="block text-sm">商品URL</label>
+    <p class="mt-1"><a class="text-blue-600 underline break-all" href="${long}">${long}</a></p>`;
+  assert.ok(long.length > 800);
+  assert.equal(parseTaProductUrl(html), long);
+});
