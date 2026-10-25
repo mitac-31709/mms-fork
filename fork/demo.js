@@ -241,7 +241,7 @@ export function demoOrders(opts = {}) {
 
 // ── TA の注文 ──────────────────────────────────────
 const TA_ORDER_SEED = [
-  ['60d01939-3c2b-4d5c-a4aa-2966f2b12d9e', 'アルカリ乾電池 単3形', 'YSLR6K/4S', 'モノタロウ', '16: A4', 315, 1, '10/22 16:13', '注文済み'],
+  ['60d01939-3c2b-4d5c-a4aa-2966f2b12d9e', 'アルカリ乾電池 単3形', 'YSLR6K/4S', 'モノタロウ', '16: A4', 315, 1, '10/22 16:13', '注文済み', 'https://www.monotaro.com/g/00174701/', 'https://jp.images-monotaro.com/Monotaro3/pi/full/mono09509315-221021-02.jpg'],
   ['add58cdd-1b14-4357-b746-27e4e6ab1650', 'ドアセンサースイッチ SPS-320', 'SPS-320N', '秋月電子通商', '16: A4', 400, 1, '10/22 15:54', '注文済み'],
   ['d835bc9b-167e-4c36-9239-1117632edfa3', 'USB 変換アダプタ', null, 'Amazon', '10: 未定', 562, 1, '2026/10/01 16:19', '受取可能'],
   ['09e6d85f-04ad-40c7-be06-e59798c914ae', 'M4 六角穴付ボルト', 'M4-12', 'モノタロウ', '10: 未定', 980, 3, '10/18 09:02', '受取済み']
@@ -257,13 +257,16 @@ const TA_STATUSES = [
 
 function buildTaOrders({ generation = 1 } = {}) {
   const orders = TA_ORDER_SEED.map(([
-    id, product, modelNumber, shopName, team, unitPrice, quantity, created, status
+    id, product, modelNumber, shopName, team, unitPrice, quantity, created, status,
+    productUrl, imageUrl
   ]) => ({
     id,
     product,
     modelNumber,
     shopName,
     team,
+    productUrl: productUrl || null,
+    imageUrl: imageUrl || null,
     unitPrice: `¥${unitPrice.toLocaleString('ja-JP')}`,
     quantity: `${quantity}個`,
     total: `¥${(unitPrice * quantity).toLocaleString('ja-JP')}`,

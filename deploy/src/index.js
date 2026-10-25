@@ -6,6 +6,7 @@
  * - `GET  /api/<page>`     元アプリの画面を JSON にして返す
  * - `GET  /api/ta/orders`  TA の注文（型番・ショップ付き。ページをまとめて返す）
  * - `PATCH /api/ta/orders/:id`  TA の注文ステータスを元アプリの編集フォームへ保存する
+ * - `POST /api/ta/orders/images`  商品URLから商品画像の URL を返す
  * - `GET  /api/reports/:id` 週報の詳細（`/reports/:id/edit` の HTML。本文項目は編集画面にある）
  * - `PATCH /api/reports/:id` 週報の 1 項目を元アプリへ保存する（auto_save / フォーム）
  * - `POST /api/orders`     新しい注文を元アプリへ作る
@@ -36,10 +37,11 @@ import {
   FRESH_MS, PAGE_CACHE_PATHS, STALE_WHILE_REVALIDATE_MS,
   freshness, pageCache, userCacheKey
 } from './page-cache.js';
+import { fetchProductImage } from './product-image.js';
 import { parseIdToken, parseReportsPage, parseReportDetail } from './parse.js';
 import {
   canAccessTa, parseDashboard, parseEquipments, parseLoans, parseNotifications,
-  parseOrders, parseTaOrders, parseUser, taPageCount
+  parseOrders, parseTaOrders, parseTaProductUrl, parseUser, taPageCount
 } from './parse-pages.js';
 import { buildParseAlertPayload, inspectParse } from './parse-guard.js';
 import {
@@ -391,6 +393,103 @@ async function handleOrderCreate(request, env) {
   }, 201, headers);
 }
 
+const IMAGE_HIT_MS = 7 * 24 * 60 * 60 * 1000;
+const IMAGE_MISS_MS = 30 * 60 * 1000;
+
+function imageCacheRequest(kind, key) {
+  return new Request(`https://meister-page-cache.internal/v1/${kind}/${encodeURIComponent(key)}`);
+}
+
+async function readImageCache(kind, key) {
+  try {
+    const res = await caches.default.match(imageCacheRequest(kind, key));
+    if (!res) return null;
+    const data = await res.json();
+    const at = Date.parse(data?.fetchedAt || '');
+    if (!Number.isFinite(at)) return null;
+    const hasValue = Boolean(data.productUrl || data.imageUrl);
+    if (Date.now() - at > (hasValue ? IMAGE_HIT_MS : IMAGE_MISS_MS)) return null;
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+async function writeImageCache(kind, key, data) {
+  try {
+    await caches.default.put(imageCacheRequest(kind, key), new Response(JSON.stringify({
+      ...data,
+      fetchedAt: new Date().toISOString()
+    }), {
+      headers: {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'max-age=604800'
+      }
+    }));
+  } catch {
+    // キャッシュが書けなくても画像 URL は返す
+  }
+}
+
+async function productUrlForOrder(cookie, id) {
+  const cached = await readImageCache('order-url', id);
+  if (cached) return cached.productUrl || null;
+  let productUrl = null;
+  try {
+    productUrl = parseTaProductUrl(await html(cookie, `/ta/orders/${id}/details`));
+  } catch {
+    productUrl = null;
+  }
+  await writeImageCache('order-url', id, { productUrl });
+  return productUrl;
+}
+
+async function imageForProductUrl(productUrl) {
+  const cached = await readImageCache('product-image', productUrl);
+  if (cached) return cached.imageUrl || null;
+  const resolved = await fetchProductImage(productUrl);
+  await writeImageCache('product-image', productUrl, { imageUrl: resolved.imageUrl });
+  return resolved.imageUrl;
+}
+
+async function mapPool(items, limit, fn) {
+  const out = new Array(items.length);
+  let cursor = 0;
+  async function worker() {
+    while (cursor < items.length) {
+      const index = cursor;
+      cursor += 1;
+      out[index] = await fn(items[index]);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => worker()));
+  return out;
+}
+
+/** 見えている注文だけ、商品URLから画像を引く。一覧の全件は取りに行かない。 */
+async function handleTaOrderImages(request, env) {
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: 'JSON の本文が必要です' }, 400);
+  }
+  const session = await currentSession(request, env);
+  if (!session) return unauthorized();
+
+  const ids = [...new Set((Array.isArray(body?.ids) ? body.ids : [])
+    .map((id) => parseIdToken(id))
+    .filter((id) => typeof id === 'string'))].slice(0, 8);
+
+  const images = {};
+  await mapPool(ids, 3, async (id) => {
+    const productUrl = await productUrlForOrder(session.cookie, id);
+    const imageUrl = productUrl ? await imageForProductUrl(productUrl) : null;
+    images[id] = { productUrl, imageUrl };
+  });
+  return json({ images });
+}
+
 /** TA の注文ステータスを元アプリへ保存する。 */
 async function handleTaOrderStatus(request, env, rawId) {
   let body;
@@ -649,6 +748,10 @@ async function handleApi(request, url, env, ctx) {
 
   if (path === '/api/orders' && request.method === 'POST') {
     return handleOrderCreate(request, env);
+  }
+
+  if (path === '/api/ta/orders/images' && request.method === 'POST') {
+    return handleTaOrderImages(request, env);
   }
 
   const taOrderWrite = path.match(/^\/api\/ta\/orders\/([^/]+)$/);
