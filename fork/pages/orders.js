@@ -15,7 +15,7 @@
 
 import { api } from '../api.js';
 import { demoOrder, demoOrders } from '../demo.js';
-import { fmtDate, fmtYen } from '../format.js';
+import { fmtDate, fmtYen, parseOrderQueryId, sameId } from '../format.js';
 import {
   dataTable, emptyBlock, h, historyTimeline, metaList, panel, statusPill, toasts
 } from '../ui.js';
@@ -43,22 +43,6 @@ const SALES_SITES = [
 
 const numeric = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 
-function sameId(a, b) {
-  if (a == null || b == null) return false;
-  return String(a) === String(b);
-}
-
-function parseOrderQueryId(raw) {
-  if (!raw) return null;
-  if (/^\d+$/.test(raw)) {
-    const n = Number(raw);
-    return Number.isFinite(n) && n > 0 ? n : null;
-  }
-  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(raw)) {
-    return raw.toLowerCase();
-  }
-  return null;
-}
 
 export async function load(ctx, opts = {}) {
   return ctx.demo ? demoOrders(opts) : api.orders(opts);

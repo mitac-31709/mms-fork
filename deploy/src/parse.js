@@ -16,6 +16,9 @@
 const TAG = /<[^>]*>/g;
 const WS = /\s+/g;
 
+/** 注文ステータスの現行語彙（学生・TA 共通）。パーサ間で共有する。 */
+export const ORDER_STATUSES = ['保留中', '注文済み', '受取可能', '受取済み', 'キャンセル済み'];
+
 /** タグを落として空白を詰める */
 export function text(html) {
   if (!html) return '';

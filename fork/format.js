@@ -4,6 +4,25 @@ const DAY_MS = 86400000;
 
 export const pad = (n) => String(n).padStart(2, '0');
 
+/** id の比較。数値 id と文字列 id（UUID）を混ぜても同じ行として扱う。 */
+export function sameId(a, b) {
+  if (a == null || b == null) return false;
+  return String(a) === String(b);
+}
+
+/** URL の order_id。数値 id と UUID のどちらも受ける。 */
+export function parseOrderQueryId(raw) {
+  if (!raw) return null;
+  if (/^\d+$/.test(raw)) {
+    const n = Number(raw);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(raw)) {
+    return raw.toLowerCase();
+  }
+  return null;
+}
+
 export function parseIso(iso) {
   return iso ? new Date(`${iso}T00:00:00`) : null;
 }

@@ -5,7 +5,8 @@
  */
 
 import {
-  parseColumns, parseEmptyState, parseIdToken, parseOrderHistory, text, toIso
+  ORDER_STATUSES, parseColumns, parseEmptyState, parseIdToken,
+  parseOrderHistory, text, toIso
 } from './parse.js';
 import { cleanOrderStatus, toNumber } from './parse-pages.js';
 
@@ -210,8 +211,6 @@ export function parseTaOrders(html) {
     orders
   };
 }
-
-const ORDER_STATUSES = ['保留中', '注文済み', '受取可能', '受取済み', 'キャンセル済み'];
 
 /** `/ta/orders/:id/details`（Turbo Frame）。 */
 export function parseTaOrderDetail(html) {

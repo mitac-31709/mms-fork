@@ -2,7 +2,7 @@
 
 import { api } from '../api.js';
 import { DEMO_TODAY, demoTaReport, demoTaReports } from '../demo.js';
-import { fmtDate } from '../format.js';
+import { fmtDate, sameId } from '../format.js';
 import { dataTable, dueCell, emptyBlock, h, metaList, panel, statusPill } from '../ui.js';
 
 export const meta = {
@@ -19,10 +19,6 @@ const state = {
   submissionId: null, selectedId: null
 };
 
-function sameId(a, b) {
-  if (a == null || b == null) return false;
-  return String(a) === String(b);
-}
 
 function parseReportQueryId(raw) {
   if (!raw) return null;

@@ -11,13 +11,13 @@
  */
 
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 import {
-  parseUser, parseDashboard, parseOrders, parseOrderRows,
+  parseUser, parseDashboard, parseOrders, parseOrderDetail, parseOrderRows,
   parseEquipments, parseLoans, parseNotifications, toNumber,
   parseTaOrders, taPageCount, readOrderProductCell, parseTaOrderForm
 } from '../src/parse-pages.js';
@@ -140,9 +140,35 @@ test('金額が読めない行では null になる（0 や NaN を作らない�
   assert.equal(second.unitPrice, 'お問い合わせください');
 });
 
-test('注文のステータスは素通し（語彙を作らない）', () => {
+test('注文のステータスは先頭装飾だけ落として素通し', () => {
   const [, second] = parseOrders(populatedOrders).orders;
-  assert.equal(second.status, '✓ 承認済み');
+  assert.equal(second.status, '承認済み');
+});
+
+test('注文の UUID 行 id と現行ステータス絵文字を取れる', () => {
+  const uuidRows = `
+  <tr id="order_3ef519cc-d396-47e9-bd62-51d8e095562e">
+    <td>USB 変換</td><td>¥562</td><td>1</td><td>¥562</td>
+    <td><span>⏳ 保留中</span></td><td>2026/10/01 16:19</td>
+  </tr>
+  <tr id="order_cbaa3201-bdf3-4768-9987-3b51eca518ea">
+    <td>サーバ</td><td>¥14,800</td><td>1</td><td>¥14,800</td>
+    <td><span>📋 注文済み</span></td><td>2026/09/15 20:32</td>
+  </tr>
+  <tr id="order_4e6fec2a-085a-4928-b85b-0c004eb0fc30">
+    <td>部品</td><td>¥100</td><td>2</td><td>¥200</td>
+    <td><span>✅ 受取済み</span></td><td>2026/09/01</td>
+  </tr>`;
+  const html = orders.replace(
+    /(<tbody\b[^>]*>)([\s\S]*?)(<\/tbody>)/,
+    (_all, open, _inner, close) => `${open}${uuidRows}${close}`
+  );
+  const parsed = parseOrders(html);
+  assert.equal(parsed.orders.length, 3);
+  assert.equal(parsed.orders[0].id, '3ef519cc-d396-47e9-bd62-51d8e095562e');
+  assert.equal(parsed.orders[0].status, '保留中');
+  assert.equal(parsed.orders[1].status, '注文済み');
+  assert.equal(parsed.orders[2].status, '受取済み');
 });
 
 test('行があっても列見出しと空状態は壊れない', () => {
@@ -341,13 +367,14 @@ test('通知の項目を取れる（合成した項目で検証）', () => {
   assert.equal(parsed.notifications.length, 2);
 
   // 印は公開 JS が見ている data-notification-id。<time> があれば日時はそこから。
+  // data-notification-read ボタンがあれば未読と分かる。
   assert.deepEqual(parsed.notifications[0], {
     id: 42,
     title: '週報の締め切りが近づいています',
     body: '第14週の週報は 08/05 までに提出してください。',
     at: '2026/08/01 09:30',
     atISO: '2026-08-01',
-    read: null                                 // 既読/未読の印が無いので当てずっぽうにしない
+    read: false
   });
 
   // id="notification_<id>" でも拾える。<time> が無ければ本文中の日付を使う。
@@ -527,4 +554,48 @@ test('TA 注文のページ数は総数と 1 ページの件数から決める',
   assert.equal(taPageCount(20, 20), 1);
   assert.equal(taPageCount(null, 0), 1);
   assert.equal(taPageCount(1000, 20, 15), 15);
+});
+
+// ── 学生の注文詳細 `/orders/:id` ──
+// side_panel の断片が正常形。TA 詳細と同じ器。
+
+const studentOrderFixture = existsSync('/tmp/order_detail.html')
+  ? readFileSync('/tmp/order_detail.html', 'utf8')
+  : null;
+
+if (studentOrderFixture) {
+  test('実 HTML から学生の注文詳細と履歴を取れる', () => {
+    const d = parseOrderDetail(studentOrderFixture);
+    assert.ok(d.product);
+    assert.ok(['保留中', '注文済み', '受取可能', '受取済み', 'キャンセル済み'].includes(d.status), d.status);
+    assert.ok(Array.isArray(d.history));
+    assert.ok(d.history.length >= 1);
+    assert.equal(d.history[0].title, '注文作成');
+  });
+}
+
+test('合成した学生の注文詳細から商品・履歴を取れる', () => {
+  const html = `
+    <turbo-frame id="side_panel">
+      <h2 class="text-2xl font-bold">アルミ丸棒</h2>
+      <span class="rounded-full">注文済み</span>
+      <div><label>ショップ名</label><p>モノタロウ</p></div>
+      <h3>注文ステータス履歴</h3>
+      <div class="ml-4 flex-1"><p>注文作成</p><p>2026/10/01 16:19</p></div>
+      <div class="ml-4 flex-1"><p>注文承認</p><p>注文済み</p></div>
+    </turbo-frame>`;
+  const d = parseOrderDetail(html);
+  assert.equal(d.product, 'アルミ丸棒');
+  assert.equal(d.status, '注文済み');
+  assert.equal(d.fields['ショップ名'], 'モノタロウ');
+  assert.deepEqual(d.history, [
+    { title: '注文作成', detail: '2026/10/01 16:19' },
+    { title: '注文承認', detail: '注文済み' }
+  ]);
+});
+
+test('履歴の無い詳細でも history は配列（呼び出し側がそのまま渡せる）', () => {
+  const d = parseOrderDetail('<turbo-frame id="side_panel"><h2 class="text-2xl">部品</h2></turbo-frame>');
+  assert.equal(d.product, '部品');
+  assert.deepEqual(d.history, []);
 });

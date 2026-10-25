@@ -14,7 +14,7 @@ import {
   DEMO_TODAY, DEMO_USER, demoDashboard, demoReports, demoReport,
   demoTaTeams, demoTaUsers
 } from '../demo.js';
-import { dueRest, fmtDate, fmtShort, fmtTime } from '../format.js';
+import { dueRest, fmtDate, fmtShort, fmtTime, sameId } from '../format.js';
 import {
   applyProfileToDoc, createLocalReport, deleteLocalReport, documentTitle,
   filledWeeks, fillProfileBlanks, getProfile, hasProfile, isProfileEmpty,
@@ -38,10 +38,6 @@ const o = { q: '', status: 'all', sortKey: 'due', sortDir: 'asc', selectedId: nu
 const l = { q: '', status: 'all', sort: 'updatedAt:desc', selectedId: null };
 let tab = 'origin';
 
-function sameId(a, b) {
-  if (a == null || b == null) return false;
-  return String(a) === String(b);
-}
 
 function parseReportQueryId(raw) {
   if (!raw) return null;

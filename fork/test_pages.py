@@ -410,9 +410,11 @@ def check_reports(page) -> None:
         "body": "管理者によって新しいレポートの締め切りが設定されると、ここにレポートが表示されます。"
     }
 
+    # 統合後の render は load() の形（origin に提出用、localDocs に下書き）を受ける
     render(page, "reports", wrap({
-        "columns": columns, "empty": empty, "counts": {"未完了": 1, "完了": 0, "合計": 1},
-        "reports": [{
+        "origin": {
+            "columns": columns, "empty": empty, "counts": {"未完了": 1, "完了": 0, "合計": 1},
+            "reports": [{
             "id": "8b293839-a910-4bd6-b468-4915b9cefd19",
             "title": "10/01のレポート", "subtitle": "10: (未定)",
             "period": "期間未設定",
@@ -421,7 +423,7 @@ def check_reports(page) -> None:
             "periodStartISO": None, "periodEndISO": None,
             "body": "",
             "fields": [
-                {"name": "shortnote", "label": "概要", "value": "測定をやり直し中。",
+                {"name": "content", "label": "概要", "value": "測定をやり直し中。",
                  "lockedBy": None},
                 {"name": "start_at", "label": "開始日", "value": "2026-10-01T09:00",
                  "lockedBy": None},
@@ -431,7 +433,9 @@ def check_reports(page) -> None:
             "meta": [{"label": "提出期限", "value": "2026/10/01 17:00"}],
             "timeline": [],
             "detailLoaded": True
-        }]
+            }]
+        },
+        "localDocs": []
     }), demo=False)
     page.locator(".row__open").first.click()
     page.wait_for_timeout(200)

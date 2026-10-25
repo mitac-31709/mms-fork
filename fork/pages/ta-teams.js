@@ -2,7 +2,7 @@
 
 import { api } from '../api.js';
 import { demoTaTeam, demoTaTeams } from '../demo.js';
-import { fmtYen } from '../format.js';
+import { fmtYen, sameId } from '../format.js';
 import { dataTable, emptyBlock, h, metaList, panel } from '../ui.js';
 
 export const meta = {
@@ -15,10 +15,6 @@ export const meta = {
 const SORT_KEYS = ['name', 'membersValue', 'spendValue'];
 const state = { q: '', sortKey: 'name', sortDir: 'asc', selectedId: null };
 
-function sameId(a, b) {
-  if (a == null || b == null) return false;
-  return String(a) === String(b);
-}
 
 function parseTeamQueryId(raw) {
   if (!raw) return null;

@@ -1,6 +1,6 @@
 {
-  "measuredAt": "2026-08-05T15:17:26.766Z",
-  "runtime": "node v22.14.0",
+  "measuredAt": "2026-10-25T04:14:41.706Z",
+  "runtime": "node v24.22.1",
   "cronSchedule": "0 * * * *",
   "note": "process.cpuUsage() による概算。Workers の V8 アイソレートとは完全一致しない。 fetch 待ちは Cloudflare CPU time に含まれないので、ここでは意図的に測っていない。 Free: Cron 10ms / Paid（1時間間隔）: 最大 15 分。",
   "limits": {
@@ -10,205 +10,29 @@
   "cases": [
     {
       "subscribersPerCron": 1,
-      "itemsInjected": 0,
-      "htmlBytes": 15089,
-      "htmlSource": "/workspace/tasks/mms-fork/clone/site/auth/notifications.html",
-      "notificationsParsed": 0,
-      "cpuMs": {
-        "mean": 0.298,
-        "median": 0.162,
-        "p95": 0.699,
-        "max": 2.208
-      },
-      "wallMsMedian": 0.178,
-      "freeOk": true,
-      "freeHeadroomMs": 9.301
-    },
-    {
-      "subscribersPerCron": 1,
       "itemsInjected": 20,
       "htmlBytes": 22024,
-      "htmlSource": "/workspace/tasks/mms-fork/clone/site/auth/notifications.html+inject20",
+      "htmlSource": "/home/hatch/workspace/mms-fork/clone/site/auth/notifications.html+inject20",
       "notificationsParsed": 20,
       "cpuMs": {
-        "mean": 0.489,
-        "median": 0.317,
-        "p95": 1.755,
-        "max": 2.793
+        "mean": 1.465,
+        "median": 1.19,
+        "p95": 3.546,
+        "max": 4.204
       },
-      "wallMsMedian": 0.318,
+      "wallMsMedian": 1.342,
       "freeOk": true,
-      "freeHeadroomMs": 8.245
-    },
-    {
-      "subscribersPerCron": 1,
-      "itemsInjected": 100,
-      "htmlBytes": 49690,
-      "htmlSource": "/workspace/tasks/mms-fork/clone/site/auth/notifications.html+inject100",
-      "notificationsParsed": 100,
-      "cpuMs": {
-        "mean": 1.264,
-        "median": 0.881,
-        "p95": 3.473,
-        "max": 3.832
-      },
-      "wallMsMedian": 0.865,
-      "freeOk": true,
-      "freeHeadroomMs": 6.527
-    },
-    {
-      "subscribersPerCron": 5,
-      "itemsInjected": 0,
-      "htmlBytes": 15089,
-      "htmlSource": "/workspace/tasks/mms-fork/clone/site/auth/notifications.html",
-      "notificationsParsed": 0,
-      "cpuMs": {
-        "mean": 0.848,
-        "median": 0.568,
-        "p95": 2.8,
-        "max": 3.26
-      },
-      "wallMsMedian": 0.576,
-      "freeOk": true,
-      "freeHeadroomMs": 7.2
-    },
-    {
-      "subscribersPerCron": 5,
-      "itemsInjected": 20,
-      "htmlBytes": 22024,
-      "htmlSource": "/workspace/tasks/mms-fork/clone/site/auth/notifications.html+inject20",
-      "notificationsParsed": 20,
-      "cpuMs": {
-        "mean": 1.416,
-        "median": 1.252,
-        "p95": 1.495,
-        "max": 6.901
-      },
-      "wallMsMedian": 1.22,
-      "freeOk": true,
-      "freeHeadroomMs": 8.505
-    },
-    {
-      "subscribersPerCron": 5,
-      "itemsInjected": 100,
-      "htmlBytes": 49690,
-      "htmlSource": "/workspace/tasks/mms-fork/clone/site/auth/notifications.html+inject100",
-      "notificationsParsed": 100,
-      "cpuMs": {
-        "mean": 3.638,
-        "median": 3.327,
-        "p95": 5.171,
-        "max": 6.514
-      },
-      "wallMsMedian": 3.435,
-      "freeOk": true,
-      "freeHeadroomMs": 4.829
-    },
-    {
-      "subscribersPerCron": 10,
-      "itemsInjected": 0,
-      "htmlBytes": 15089,
-      "htmlSource": "/workspace/tasks/mms-fork/clone/site/auth/notifications.html",
-      "notificationsParsed": 0,
-      "cpuMs": {
-        "mean": 1.509,
-        "median": 1.081,
-        "p95": 2.965,
-        "max": 4.763
-      },
-      "wallMsMedian": 1.092,
-      "freeOk": true,
-      "freeHeadroomMs": 7.035
-    },
-    {
-      "subscribersPerCron": 10,
-      "itemsInjected": 20,
-      "htmlBytes": 22024,
-      "htmlSource": "/workspace/tasks/mms-fork/clone/site/auth/notifications.html+inject20",
-      "notificationsParsed": 20,
-      "cpuMs": {
-        "mean": 2.682,
-        "median": 2.385,
-        "p95": 4.576,
-        "max": 6.201
-      },
-      "wallMsMedian": 2.397,
-      "freeOk": true,
-      "freeHeadroomMs": 5.424
-    },
-    {
-      "subscribersPerCron": 10,
-      "itemsInjected": 100,
-      "htmlBytes": 49690,
-      "htmlSource": "/workspace/tasks/mms-fork/clone/site/auth/notifications.html+inject100",
-      "notificationsParsed": 100,
-      "cpuMs": {
-        "mean": 6.696,
-        "median": 6.55,
-        "p95": 7.402,
-        "max": 8.82
-      },
-      "wallMsMedian": 6.664,
-      "freeOk": true,
-      "freeHeadroomMs": 2.598
-    },
-    {
-      "subscribersPerCron": 25,
-      "itemsInjected": 0,
-      "htmlBytes": 15089,
-      "htmlSource": "/workspace/tasks/mms-fork/clone/site/auth/notifications.html",
-      "notificationsParsed": 0,
-      "cpuMs": {
-        "mean": 4.122,
-        "median": 3.106,
-        "p95": 8.733,
-        "max": 11.026
-      },
-      "wallMsMedian": 2.853,
-      "freeOk": true,
-      "freeHeadroomMs": 1.267
-    },
-    {
-      "subscribersPerCron": 25,
-      "itemsInjected": 20,
-      "htmlBytes": 22024,
-      "htmlSource": "/workspace/tasks/mms-fork/clone/site/auth/notifications.html+inject20",
-      "notificationsParsed": 20,
-      "cpuMs": {
-        "mean": 5.727,
-        "median": 5.441,
-        "p95": 7.999,
-        "max": 10.457
-      },
-      "wallMsMedian": 5.427,
-      "freeOk": true,
-      "freeHeadroomMs": 2.001
-    },
-    {
-      "subscribersPerCron": 25,
-      "itemsInjected": 100,
-      "htmlBytes": 49690,
-      "htmlSource": "/workspace/tasks/mms-fork/clone/site/auth/notifications.html+inject100",
-      "notificationsParsed": 100,
-      "cpuMs": {
-        "mean": 18.29,
-        "median": 15.934,
-        "p95": 29.694,
-        "max": 39.157
-      },
-      "wallMsMedian": 17.05,
-      "freeOk": false,
-      "freeHeadroomMs": -19.694
+      "freeHeadroomMs": 6.454
     }
   ],
   "verdict": {
     "worstCase": {
-      "subscribersPerCron": 25,
-      "itemsInjected": 100,
-      "p95Ms": 29.694
+      "subscribersPerCron": 1,
+      "itemsInjected": 20,
+      "p95Ms": 3.546
     },
-    "freePlanLikelyOkForTestedCases": false,
+    "freePlanLikelyOkForTestedCases": true,
     "paidHourlyOk": true,
-    "recommendation": "測定上 Free の 10ms を超えるケースがある。Paid（1 時間 Cron は最大 15 分）を推奨。"
+    "recommendation": "測定した範囲では Free の 10ms に収まった。本番はダッシュボードの Cron CPU time で再確認すること。"
   }
 }

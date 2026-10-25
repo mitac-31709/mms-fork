@@ -64,11 +64,6 @@ export const PAGE_EXPECTATIONS = {
     kind: 'dashboard',
     heading: 'TAダッシュボード'
   },
-  '/ta/orders': {
-    kind: 'table',
-    columns: ['商品', 'チーム', '単価', '数量', '合計', 'ステータス', '作成日時', '操作'],
-    itemsKey: 'orders'
-  },
   '/ta/reports': {
     kind: 'table',
     columns: ['チーム', 'タイトル', '期間', 'ステータス', '期限'],
