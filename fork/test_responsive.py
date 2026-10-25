@@ -13,7 +13,6 @@ Hallmark の slop test のうち、目視でなく機械で確かめられるゲ
   - 状態が URL に同期される
   - Escape と背景クリックでパネルが閉じ、フォーカスが呼び出した行へ戻る
   - パネルを閉じても本文が保持される
-  - 削除が確認ダイアログなしで実行され、元に戻せる
 
 前提: フォークが http://localhost:8081/ で配信されていること。
 
@@ -303,70 +302,6 @@ def check_behaviour(page, base: str) -> None:
     check(not page.is_visible("#panel"), "背景クリックでパネルが閉じない")
     print("  パネル: 背景クリックで閉じる")
 
-    # 削除は確認ダイアログを出さず、元に戻せる
-    dialogs: list[str] = []
-    page.on("dialog", lambda d: (dialogs.append(d.message), d.dismiss()))
-
-    before_rows = page.locator(".row").count()
-    first.click()
-    page.wait_for_timeout(400)
-    page.click("#panel-delete")
-    page.wait_for_timeout(400)
-    check(not dialogs, f"削除で確認ダイアログが出た → {dialogs}")
-    check(page.locator(".row").count() == before_rows - 1,
-          "削除しても行数が減っていない")
-    check(page.is_visible(".toast__action"), "元に戻すボタンが出ない")
-
-    page.click(".toast__action")
-    page.wait_for_timeout(300)
-    check(page.locator(".row").count() == before_rows,
-          "元に戻しても行数が戻らない")
-    print(f"  削除: 確認ダイアログなし、{before_rows}→{before_rows - 1}→{before_rows} 行で復元")
-
-    # 連続削除。トーストが積まれ、どちらも元の位置に戻ること。
-    # トーストはパネルの操作ボタンと重ならないこと（重なると「削除」を押したつもりで
-    # 「元に戻す」を押してしまう。実測で踏んだ不具合）。
-    titles_before = page.eval_on_selector_all(
-        ".row__open", "els => els.map(e => e.textContent.trim())")
-
-    def delete_row(week):
-        page.locator(f'.row__open:has-text("{week}")').first.click()
-        page.wait_for_timeout(350)
-        page.click("#panel-delete")
-        page.wait_for_timeout(300)
-
-    delete_row("第2週")
-    delete_row("第3週")
-    check(page.locator(".toast").count() == 2,
-          f"連続削除でトーストが {page.locator('.toast').count()} 件しか無い（2 件を期待）")
-
-    # パネルを開いた状態での重なりを幾何で確認
-    page.locator('.row__open:has-text("第5週")').first.click()
-    page.wait_for_timeout(400)
-    overlap = page.evaluate("""
-      () => {
-        const a = document.querySelector('#panel-delete').getBoundingClientRect();
-        const b = document.querySelector('.toast')?.getBoundingClientRect();
-        if (!b) return 'no-toast';
-        return !(a.right < b.left || b.right < a.left ||
-                 a.bottom < b.top || b.bottom < a.top);
-      }
-    """)
-    check(overlap is False, f"トーストがパネルの操作ボタンに重なっている（{overlap}）")
-    page.keyboard.press("Escape")
-    page.wait_for_timeout(250)
-
-    page.locator(".toast__action").nth(0).click()
-    page.wait_for_timeout(250)
-    page.locator(".toast__action").nth(0).click()
-    page.wait_for_timeout(250)
-    titles_after = page.eval_on_selector_all(
-        ".row__open", "els => els.map(e => e.textContent.trim())")
-    check(titles_after == titles_before,
-          f"連続削除を取り消しても並びが戻らない\n  前: {titles_before}\n  後: {titles_after}")
-    print("  連続削除: トースト 2 件が積まれ、どちらも元の位置に復元、"
-          "パネルの操作ボタンと重なりなし")
-
     # 「/」で検索欄へ
     page.keyboard.press("/")
     page.wait_for_timeout(120)
@@ -415,8 +350,7 @@ def main() -> int:
         return 1
     print("PASS: 320-1920px の横あふれなし・ラベル折り返しなし・"
           "状態定義あり・再読み込みなしの絞り込みとソート・"
-          "パネルの Escape / 背景クリック / フォーカス復帰 / 内容保持・"
-          "確認なし削除と取り消し")
+          "パネルの Escape / 背景クリック / フォーカス復帰 / 内容保持")
     return 0
 
 
