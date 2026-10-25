@@ -400,6 +400,7 @@ export function render(data, ctx) {
       src: src || null,
       hidden: !src,
       loading: 'lazy',
+      referrerpolicy: 'no-referrer',
       onerror: (e) => { e.currentTarget.hidden = true; }
     });
   }
@@ -657,6 +658,7 @@ export function render(data, ctx) {
       dataset: { orderImage: o.id },
       src: src || null,
       hidden: !src,
+      referrerpolicy: 'no-referrer',
       onerror: (e) => { e.currentTarget.hidden = true; }
     });
     if (!record.productUrl) return img;
