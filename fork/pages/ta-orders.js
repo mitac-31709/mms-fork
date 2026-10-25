@@ -9,7 +9,7 @@
 import { api } from '../api.js';
 import { demoTaOrder, demoTaOrders } from '../demo.js';
 import { fmtDate, fmtYen, parseOrderQueryId, sameId } from '../format.js';
-import { dataTable, emptyBlock, h, historyTimeline, metaList, panel, statusPill, toasts } from '../ui.js';
+import { dataTable, emptyBlock, h, historyTimeline, metaList, panel, statusPill, toasts, productLink } from '../ui.js';
 
 export const meta = {
   route: '/ta/orders',
@@ -393,13 +393,15 @@ export function render(data, ctx) {
 
   function productThumb(o) {
     const src = knownImage(o).imageUrl || '';
+    // hidden だと display:none で面積が 0 になり IntersectionObserver が発火しない。
+    // 未取得のうちは CSS の枠だけ見せ、失敗したときだけ隠す。
     return h('img', {
       class: 'product-thumb',
       alt: '',
       dataset: { orderImage: o.id },
       src: src || null,
-      hidden: !src,
       loading: 'lazy',
+      referrerpolicy: 'no-referrer',
       onerror: (e) => { e.currentTarget.hidden = true; }
     });
   }
@@ -626,7 +628,7 @@ export function render(data, ctx) {
       const detail = ctx.demo
         ? await demoTaOrder(o.id)
         : await api.taOrder(o.id);
-      const shown = new Set(['単価', '数量', 'ショップ名', '型番']);
+      const shown = new Set(['単価', '数量', 'ショップ名', '型番', '商品URL']);
       const entries = [];
       if (detail.teamBudget) entries.push(['チーム累計予算', detail.teamBudget]);
       for (const [k, v] of Object.entries(detail.fields || {})) {
@@ -635,10 +637,7 @@ export function render(data, ctx) {
       }
       const productUrl = detail.fields?.['商品URL'] || detail.productUrl;
       if (productUrl) {
-        entries.push(['商品URL', h('a', {
-          href: productUrl, target: '_blank', rel: 'noopener noreferrer',
-          text: productUrl
-        })]);
+        entries.push(['商品URL', productLink(productUrl)]);
       }
       const blocks = [
         entries.length ? metaList(entries) : null,
@@ -660,6 +659,7 @@ export function render(data, ctx) {
       dataset: { orderImage: o.id },
       src: src || null,
       hidden: !src,
+      referrerpolicy: 'no-referrer',
       onerror: (e) => { e.currentTarget.hidden = true; }
     });
     if (!record.productUrl) return img;

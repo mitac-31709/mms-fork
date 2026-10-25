@@ -17,7 +17,7 @@ import { api } from '../api.js';
 import { demoOrder, demoOrders } from '../demo.js';
 import { fmtDate, fmtYen, parseOrderQueryId, sameId } from '../format.js';
 import {
-  dataTable, emptyBlock, h, historyTimeline, metaList, panel, statusPill, toasts
+  dataTable, emptyBlock, h, historyTimeline, metaList, panel, productLink, statusPill, toasts
 } from '../ui.js';
 
 export const meta = { route: '/orders', nav: '注文', title: '注文' };
@@ -372,7 +372,7 @@ export function render(data, ctx) {
         ['合計', detail.total || o.totalText],
         ['ステータス', statusPill(detail.status || o.status)],
         ['作成日', detail.createdAt || o.createdText || '—'],
-        ...extra.map(([k, v]) => [k, v || '—'])
+        ...extra.map(([k, v]) => [k, k === '商品URL' ? productLink(v) : (v || '—')])
       ];
       panel.update({ body: [metaList(entries), historyTimeline(detail.history)] });
     } catch {

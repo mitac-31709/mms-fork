@@ -438,7 +438,8 @@ export function parseTaOrderForm(html) {
 export function parseTaProductUrl(html) {
   const at = String(html || '').search(/商品URL/);
   if (at < 0) return null;
-  const href = html.slice(at, at + 800).match(/href="(https?:\/\/[^"]+)"/i);
+  // 長い Amazon の URL は 800 文字を超えるので、href の始まりまでの距離だけを縛る
+  const href = html.slice(at).match(/^[\s\S]{0,800}?href="(https?:\/\/[^"]+)"/i);
   if (!href) return null;
   const url = decodeAttr(href[1]);
   return /^https?:\/\//i.test(url) ? url : null;

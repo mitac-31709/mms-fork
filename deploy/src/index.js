@@ -444,7 +444,7 @@ const IMAGE_HIT_MS = 7 * 24 * 60 * 60 * 1000;
 const IMAGE_MISS_MS = 30 * 60 * 1000;
 
 function imageCacheRequest(kind, key) {
-  return new Request(`https://meister-page-cache.internal/v1/${kind}/${encodeURIComponent(key)}`);
+  return new Request(`https://meister-page-cache.internal/v2/${kind}/${encodeURIComponent(key)}`);
 }
 
 async function readImageCache(kind, key) {
