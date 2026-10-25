@@ -5,6 +5,9 @@
  * - `GET  /api/me`         ログイン中の利用者（mode / canTa / canSwitch 付き）
  * - `POST /api/view_mode`  TA / 学生ビュー切替
  * - `GET  /api/<page>`     元アプリの画面を JSON にして返す
+ * - `GET  /api/ta/orders`  TA の注文（型番・ショップ付き。ページをまとめて返す）
+ * - `PATCH /api/ta/orders/:id`  TA の注文ステータスを元アプリの編集フォームへ保存する
+ * - `POST /api/ta/orders/images`  商品URLから商品画像の URL を返す
  * - `GET  /api/ta/**`      TA 画面（注文・週報・チーム・ユーザー）
  * - `PATCH /api/ta/orders/bulk_update_status`  注文済み→受取可能の一括更新
  * - `GET  /api/reports/:id` 週報の詳細（`/reports/:id/edit` の HTML。本文項目は編集画面にある）
@@ -32,22 +35,25 @@ import {
 } from './background.js';
 import { forwardDiscord, sanitizeDiscordBody, validateWebhookUrl } from './discord.js';
 import {
-  ApiError, bulkUpdateTaOrderStatus, createOrder, fetchUserProfile, html,
-  markAllNotificationsRead, markNotificationRead, saveReportField, signIn,
-  signOut, switchViewMode, unreadCount
+  ApiError, bulkUpdateTaOrderStatus, createOrder, fetchUserProfile, get,
+  html, markAllNotificationsRead, markNotificationRead, saveReportField,
+  signIn, signOut, switchViewMode, unreadCount, updateTaOrderStatus
 } from './meister.js';
 import {
   FRESH_MS, PAGE_CACHE_PATHS, STALE_WHILE_REVALIDATE_MS,
   freshness, pageCache, userCacheKey
 } from './page-cache.js';
+import { fetchProductImage } from './product-image.js';
 import { parseIdToken, parseReportsPage, parseReportDetail } from './parse.js';
 import {
   parseDashboard, parseEquipments, parseLoans, parseNotifications,
-  parseOrderDetail, parseOrders
+  parseOrderDetail, parseOrders, parseTaOrders, parseTaProductUrl,
+  taPageCount
 } from './parse-pages.js';
 import {
-  parseTaDashboard, parseTaOrderDetail, parseTaOrders, parseTaReportDetail, parseTaReports,
-  parseTaTeamDetail, parseTaTeams, parseTaUsers
+  parseTaDashboard, parseTaOrderDetail, parseTaOrders as parseTaOrdersPage,
+  parseTaReportDetail, parseTaReports, parseTaTeamDetail, parseTaTeams,
+  parseTaUsers
 } from './parse-ta.js';
 import { buildParseAlertPayload, inspectParse } from './parse-guard.js';
 import {
@@ -170,6 +176,96 @@ async function pageLive(cookie, path, parse, env) {
   };
 }
 
+/** TA の注文を、ページをまたいで 1 つの JSON にする。
+ *  型番とショップは各行の商品セルにある。検索はフォーク側で行うので、
+ *  表示中の 20 件だけだと型番で見つからない。 */
+async function taOrdersLive(cookie, env) {
+  const perPage = 100;
+  const firstPath = `/ta/orders?page=1&per_page=${perPage}`;
+  const first = await get(cookie, firstPath);
+  if (first.redirectedTo) {
+    throw new ApiError(403, 'TA の注文を見る権限がありません');
+  }
+  if (first.status !== 200) {
+    throw new ApiError(502, `元アプリの /ta/orders が ${first.status} を返しました`
+      + (first.redirectedTo ? `（→ ${first.redirectedTo}）` : ''));
+  }
+
+  let parsed;
+  try {
+    parsed = parseTaOrders(first.body);
+  } catch (e) {
+    await alertParseAnomaly(env, {
+      path: '/ta/orders',
+      origin: `https://meister.tokyo-ct.org${firstPath}`,
+      reasons: ['パーサが例外を投げた'],
+      html: first.body,
+      error: e.message || String(e)
+    });
+    throw new ApiError(502, `元アプリの /ta/orders を読めませんでした（${e.message || e}）`);
+  }
+
+  if (parsed.access === 'forbidden') {
+    throw new ApiError(403, 'TA の注文を見る権限がありません');
+  }
+
+  const check = inspectParse('/ta/orders', first.body, parsed);
+  if (!check.ok) {
+    await alertParseAnomaly(env, {
+      path: '/ta/orders',
+      origin: `https://meister.tokyo-ct.org${firstPath}`,
+      reasons: check.reasons,
+      html: first.body
+    });
+  }
+
+  const orders = [...parsed.orders];
+  const seen = new Set(orders.map((o) => (o.id != null ? String(o.id) : null)).filter(Boolean));
+  const pages = taPageCount(parsed.total, parsed.orders.length);
+  if (pages > 1) {
+    const rest = await Promise.all(
+      Array.from({ length: pages - 1 }, (_, i) =>
+        get(cookie, `/ta/orders?page=${i + 2}&per_page=${perPage}`))
+    );
+    for (const res of rest) {
+      if (res.status !== 200 || !res.body) continue;
+      let page;
+      try {
+        page = parseTaOrders(res.body);
+      } catch {
+        continue;
+      }
+      for (const o of page.orders) {
+        const key = o.id != null ? String(o.id) : null;
+        if (key && seen.has(key)) continue;
+        if (key) seen.add(key);
+        orders.push(o);
+      }
+    }
+  }
+
+  // parse-ta 側の絞り込み選択肢（filters）も併せて返す。
+  // 一覧パーサは型番・ショップ・statuses / teams を持ち、parse-ta は
+  // 元アプリのフィルタ select を持つ。利用側はどちらでも絞れる。
+  let filters = null;
+  try {
+    filters = parseTaOrdersPage(first.body).filters ?? null;
+  } catch {
+    filters = null;
+  }
+
+  return {
+    source: 'live',
+    origin: 'https://meister.tokyo-ct.org/ta/orders',
+    fetchedAt: new Date().toISOString(),
+    parseWarning: check.ok ? null : check.reasons,
+    ...parsed,
+    filters,
+    orders,
+    truncated: parsed.total != null && orders.length < parsed.total
+  };
+}
+
 /** 利用者区画のキャッシュ付き。遅延はミス時だけ。 */
 async function page(cookie, path, parse, env, ctx, { refresh = false } = {}) {
   const userKey = await userCacheKey(cookie);
@@ -261,9 +357,9 @@ const PAGES = {
   '/api/equipments': ['/equipments', parseEquipments],
   '/api/loans': ['/loans', parseLoans],
   '/api/notifications': ['/notifications', parseNotifications],
-  // TA。注文・ユーザーは件数が多いので per_page=100 で取る。
+  // TA。ユーザーは件数が多いので per_page=100 で取る。
+  // 注文は型番・ショップ付きで全ページをまとめる専用ルート（taOrdersLive）が担う。
   '/api/ta': ['/ta', parseTaDashboard],
-  '/api/ta/orders': ['/ta/orders?per_page=100', parseTaOrders],
   '/api/ta/reports': ['/ta/reports', parseTaReports],
   '/api/ta/teams': ['/ta/teams', parseTaTeams],
   '/api/ta/users': ['/ta/users?per_page=100', parseTaUsers]
@@ -331,10 +427,10 @@ async function handleOrderCreate(request, env) {
     headers['Set-Cookie'] = setCookieHeader(token);
   }
 
-  // 注文一覧・ダッシュボードはすぐ古くなるので利用者区画だけ落とす。
+  // 注文一覧・ダッシュボード・TA の一覧はすぐ古くなるので利用者区画だけ落とす。
   const userKey = await userCacheKey(result.cookie || session.cookie);
   await pageCache.invalidate(userKey, [
-    '/orders', '/dashboard', '/ta/orders?per_page=100', '/ta'
+    '/orders', '/dashboard', '/ta/orders', '/ta/orders?per_page=100', '/ta'
   ]);
 
   return json({
@@ -342,6 +438,138 @@ async function handleOrderCreate(request, env) {
     redirectedTo: result.redirectedTo,
     productName: String(body?.productName ?? '').trim()
   }, 201, headers);
+}
+
+const IMAGE_HIT_MS = 7 * 24 * 60 * 60 * 1000;
+const IMAGE_MISS_MS = 30 * 60 * 1000;
+
+function imageCacheRequest(kind, key) {
+  return new Request(`https://meister-page-cache.internal/v1/${kind}/${encodeURIComponent(key)}`);
+}
+
+async function readImageCache(kind, key) {
+  try {
+    const res = await caches.default.match(imageCacheRequest(kind, key));
+    if (!res) return null;
+    const data = await res.json();
+    const at = Date.parse(data?.fetchedAt || '');
+    if (!Number.isFinite(at)) return null;
+    const hasValue = Boolean(data.productUrl || data.imageUrl);
+    if (Date.now() - at > (hasValue ? IMAGE_HIT_MS : IMAGE_MISS_MS)) return null;
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+async function writeImageCache(kind, key, data) {
+  try {
+    await caches.default.put(imageCacheRequest(kind, key), new Response(JSON.stringify({
+      ...data,
+      fetchedAt: new Date().toISOString()
+    }), {
+      headers: {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'max-age=604800'
+      }
+    }));
+  } catch {
+    // キャッシュが書けなくても画像 URL は返す
+  }
+}
+
+async function productUrlForOrder(cookie, id) {
+  const cached = await readImageCache('order-url', id);
+  if (cached) return cached.productUrl || null;
+  let productUrl = null;
+  try {
+    productUrl = parseTaProductUrl(await html(cookie, `/ta/orders/${id}/details`));
+  } catch {
+    productUrl = null;
+  }
+  await writeImageCache('order-url', id, { productUrl });
+  return productUrl;
+}
+
+async function imageForProductUrl(productUrl) {
+  const cached = await readImageCache('product-image', productUrl);
+  if (cached) return cached.imageUrl || null;
+  const resolved = await fetchProductImage(productUrl);
+  await writeImageCache('product-image', productUrl, { imageUrl: resolved.imageUrl });
+  return resolved.imageUrl;
+}
+
+async function mapPool(items, limit, fn) {
+  const out = new Array(items.length);
+  let cursor = 0;
+  async function worker() {
+    while (cursor < items.length) {
+      const index = cursor;
+      cursor += 1;
+      out[index] = await fn(items[index]);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => worker()));
+  return out;
+}
+
+/** 見えている注文だけ、商品URLから画像を引く。一覧の全件は取りに行かない。 */
+async function handleTaOrderImages(request, env) {
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: 'JSON の本文が必要です' }, 400);
+  }
+  const session = await currentSession(request, env);
+  if (!session) return unauthorized();
+
+  const ids = [...new Set((Array.isArray(body?.ids) ? body.ids : [])
+    .map((id) => parseIdToken(id))
+    .filter((id) => typeof id === 'string'))].slice(0, 8);
+
+  const images = {};
+  await mapPool(ids, 3, async (id) => {
+    const productUrl = await productUrlForOrder(session.cookie, id);
+    const imageUrl = productUrl ? await imageForProductUrl(productUrl) : null;
+    images[id] = { productUrl, imageUrl };
+  });
+  return json({ images });
+}
+
+/** TA の注文ステータスを元アプリへ保存する。 */
+async function handleTaOrderStatus(request, env, rawId) {
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: 'JSON の本文が必要です' }, 400);
+  }
+
+  const session = await currentSession(request, env);
+  if (!session) return unauthorized();
+
+  const status = typeof body?.status === 'string' ? body.status.trim() : '';
+  const result = await updateTaOrderStatus(session.cookie, rawId, status);
+
+  const headers = {};
+  if (result.cookie && result.cookie !== session.cookie) {
+    const token = await seal(
+      sessionSealFields(session, result.cookie),
+      env.SESSION_SECRET
+    );
+    headers['Set-Cookie'] = setCookieHeader(token);
+  }
+
+  const userKey = await userCacheKey(result.cookie || session.cookie);
+  await pageCache.invalidate(userKey, ['/ta/orders', '/orders', '/dashboard']);
+
+  return json({
+    ok: true,
+    id: result.id,
+    status: result.status,
+    statusLabel: result.statusLabel
+  }, 200, headers);
 }
 
 /** 週報の 1 項目を元アプリへ保存する。 */
@@ -673,6 +901,15 @@ async function handleApi(request, url, env, ctx) {
     return handleTaOrdersBulk(request, env);
   }
 
+  if (path === '/api/ta/orders/images' && request.method === 'POST') {
+    return handleTaOrderImages(request, env);
+  }
+
+  const taOrderWrite = path.match(/^\/api\/ta\/orders\/([^/]+)$/);
+  if (taOrderWrite && request.method === 'PATCH') {
+    return handleTaOrderStatus(request, env, taOrderWrite[1]);
+  }
+
   if (path === '/api/notifications/mark_all_as_read' && request.method === 'PATCH') {
     return handleNotificationMarkAllRead(request, env);
   }
@@ -704,6 +941,19 @@ async function handleApi(request, url, env, ctx) {
         canTa: session.canTa
       })
     });
+  }
+
+  if (path === '/api/ta/orders') {
+    const refresh = url.searchParams.get('refresh') === '1';
+    const userKey = await userCacheKey(session.cookie);
+    const data = await pageCache.load({
+      userKey,
+      path: '/ta/orders',
+      ctx: refresh ? null : ctx,
+      mode: refresh ? 'refresh' : 'swr',
+      fetchFresh: () => taOrdersLive(session.cookie, env)
+    });
+    return json(data);
   }
 
   const taOrderDetail = path.match(/^\/api\/ta\/orders\/([^/]+)$/);

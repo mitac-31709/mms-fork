@@ -66,6 +66,18 @@ export const api = {
   orders: (opts) => request('/api/orders', opts),
   /** 注文詳細（注文ステータス履歴つき）。元アプリの `/orders/:id` を読む。 */
   order: (id, opts) => request(`/api/orders/${encodeURIComponent(id)}`, opts),
+  /** 見えている注文の商品画像。ids は最大 8 件。 */
+  taOrderImages: (ids) => request('/api/ta/orders/images', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids })
+  }),
+  /** TA の注文ステータスを元アプリの編集フォームへ保存する。 */
+  updateTaOrderStatus: (id, status) => request(`/api/ta/orders/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status })
+  }),
   equipments: (opts) => request('/api/equipments', opts),
   loans: (opts) => request('/api/loans', opts),
   notifications: (opts) => request('/api/notifications', opts),

@@ -159,6 +159,7 @@ function noteFor(data) {
 
 function paint(route, data) {
   if (window.__haltAppPaint) return;
+  if (typeof data?.canTa === 'boolean') setTaNav(data.canTa);
   const page = BY_ROUTE.get(route);
   if (!page || !data) return;
   const [kind, note] = noteFor(data);
@@ -233,6 +234,13 @@ function errorBlock(message, onRetry) {
 
 let renderToken = 0;
 let prefetchGen = 0;
+let taNavOn = false;
+
+function setTaNav(on) {
+  taNavOn = Boolean(on);
+  const item = document.getElementById('nav-ta-orders');
+  if (item) item.hidden = !taNavOn;
+}
 
 async function render(route) {
   const page = BY_ROUTE.get(route);
@@ -375,6 +383,7 @@ function showApp(user) {
   if (user?.badge) metaBits.push(user.badge);
   if (user?.mode === 'ta') metaBits.push('TA');
   el.userMeta.textContent = metaBits.join(' · ');
+  if (user?.canTa) setTaNav(true);
   rebuildNav();
   startNotifyWatcher();
 }

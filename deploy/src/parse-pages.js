@@ -18,12 +18,9 @@
  */
 
 import {
-  extractSidePanel, parseOrderHistory, text, toIso,
+  ORDER_STATUSES, extractSidePanel, parseOrderHistory, text, toIso,
   parseColumns, parseEmptyState, parseIdToken
 } from './parse.js';
-
-/** 注文ステータスの現行語彙（学生・TA 共通）。 */
-const ORDER_STATUSES = ['保留中', '注文済み', '受取可能', '受取済み', 'キャンセル済み'];
 
 /** 「¥1,200」「1,200円」「2」を数値にする。読めなければ null。
  *  0 と「読めなかった」を混ぜないため、NaN も 0 も作らない。 */
@@ -153,8 +150,14 @@ export function parseUser(html) {
   return { name: target('userName'), badge: target('userBadge') };
 }
 
+/** ナビに `/ta/orders` があるか。TA だけに出るリンク（学生の実 HTML には無い）。 */
+export function canAccessTa(html) {
+  return /href="\/ta\/orders(?:\?[^"]*)?"/.test(String(html || ''));
+}
+
 /** `/dashboard`。見出しとチーム行と「調整中」だけの画面（実 HTML で検証済み）。
- *  `notice` は class の無い 2 つめの <h1>。 */
+ *  `notice` は class の無い 2 つめの <h1>。
+ *  `canTa` はナビのリンクで見る。本文ではなくページ全体を見る。 */
 export function parseDashboard(html) {
   const body = main(html);
   const withClass = body.match(/<h1\b[^>]*class="[^"]*"[^>]*>([\s\S]*?)<\/h1>/);
@@ -162,7 +165,8 @@ export function parseDashboard(html) {
   return {
     heading: withClass ? text(withClass[1]) || null : null,
     team: ledeAfterHeading(body),
-    notice: bare ? text(bare[1]) || null : null
+    notice: bare ? text(bare[1]) || null : null,
+    canTa: canAccessTa(html)
   };
 }
 
@@ -233,6 +237,311 @@ export function parseOrders(html) {
     columns,
     empty: parseEmptyState(body),
     orders: parseOrderRows(body, columns)
+  };
+}
+
+/** 空欄・ハイフンだけの型番やショップは「無い」。`-` を型番として検索に載せない。 */
+function blankField(value) {
+  const v = String(value ?? '').trim();
+  if (!v || v === '-' || v === '—' || v === '－') return null;
+  return v;
+}
+
+/** 商品セル。
+ *  2026-10-23 に TA の `/ta/orders` で確認した並びは
+ *  商品名 span、ショップ span、型番 span（ラベル無し）。
+ *  学生の `/orders` は `ショップ: …` `型番: …` とラベル付き。どちらも読む。
+ *  クラスは鍵にしない。 */
+export function readOrderProductCell(tdHtml) {
+  const spans = [];
+  const re = /<span\b[^>]*>([\s\S]*?)<\/span>/gi;
+  let m;
+  while ((m = re.exec(String(tdHtml || '')))) {
+    const t = text(m[1]);
+    if (t) spans.push(t);
+  }
+
+  let shopName = null;
+  let modelNumber = null;
+  const rest = [];
+  for (const s of spans) {
+    const shop = s.match(/^ショップ\s*[:：]\s*(.*)$/);
+    const model = s.match(/^型番\s*[:：]\s*(.*)$/);
+    if (shop) shopName = blankField(shop[1]);
+    else if (model) modelNumber = blankField(model[1]);
+    else rest.push(s);
+  }
+
+  const product = rest[0] || text(tdHtml) || '';
+  if (shopName == null && rest.length > 1) shopName = blankField(rest[1]);
+  if (modelNumber == null && rest.length > 2) modelNumber = blankField(rest[2]);
+  return { product, shopName, modelNumber };
+}
+
+/** チーム名。アバターの 1 文字は span ではなく、名前の span だけを取る。 */
+function teamName(tdHtml) {
+  const spans = [];
+  const re = /<span\b[^>]*>([\s\S]*?)<\/span>/gi;
+  let m;
+  while ((m = re.exec(String(tdHtml || '')))) {
+    const t = text(m[1]);
+    if (t) spans.push(t);
+  }
+  const named = spans.filter((s) => [...s].length > 1);
+  if (named.length) return named[named.length - 1];
+  return text(tdHtml) || '';
+}
+
+/** ステータス。絵文字だけのテキストノードは捨て、言葉だけ残す。 */
+function statusLabel(tdHtml) {
+  const parts = [];
+  const re = />([^<]+)</g;
+  let m;
+  while ((m = re.exec(String(tdHtml || '')))) {
+    const t = text(m[1]);
+    if (t && /[\p{L}\p{N}]/u.test(t)) parts.push(t);
+  }
+  return parts.join('') || text(tdHtml) || '';
+}
+
+/** 数量「1個」から整数を取る。単位が付いていても null にしない。 */
+function quantityNumber(value) {
+  const m = String(value ?? '').match(/-?\d+/);
+  if (!m) return null;
+  const n = Number(m[0]);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** `<th>` の中の最初の span を列名にする。
+ *  チェックボックス列は span が無く、`>` が属性に混ざるので text() すると壊れる。 */
+function parseTaColumns(html) {
+  const thead = html.match(/<thead[\s\S]*?<\/thead>/);
+  if (!thead) return [];
+  const out = [];
+  const re = /<th\b[\s\S]*?<\/th>/g;
+  let m;
+  while ((m = re.exec(thead[0]))) {
+    const span = m[0].match(/<span\b[^>]*>([\s\S]*?)<\/span>/i);
+    const label = span ? text(span[1]) : '';
+    if (!label || label === '操作') continue;
+    const column = m[0].match(/data-column="([^"]+)"/);
+    out.push(column ? { label, column: column[1] } : { label });
+  }
+  return out;
+}
+
+function selectOptions(html, name) {
+  const sel = html.match(new RegExp(
+    `<select\\b[^>]*\\bname="${name}"[^>]*>([\\s\\S]*?)</select>`, 'i'
+  ));
+  if (!sel) return [];
+  const out = [];
+  const re = /<option\b([^>]*)>([\s\S]*?)<\/option>/gi;
+  let m;
+  while ((m = re.exec(sel[1]))) {
+    const value = (m[1].match(/\bvalue="([^"]*)"/) || [])[1] ?? '';
+    const label = text(m[2]);
+    if (!value || !label || label === 'すべて') continue;
+    out.push({ value, label });
+  }
+  return out;
+}
+
+function parseTaTotal(html) {
+  const m = html.match(/全\s*<span\b[^>]*>\s*(\d+)\s*<\/span>\s*件中/)
+    || html.match(/全\s*(\d+)\s*件/);
+  return m ? Number(m[1]) : null;
+}
+
+function decodeAttr(value) {
+  return String(value)
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>');
+}
+
+function namedControl(formHtml, name) {
+  const inputRe = /<input\b[^>]*>/gi;
+  let input;
+  while ((input = inputRe.exec(formHtml))) {
+    const tag = input[0];
+    if ((tag.match(/\bname="([^"]*)"/) || [])[1] !== name) continue;
+    const value = (tag.match(/\bvalue="([^"]*)"/) || [])[1];
+    return value == null ? '' : decodeAttr(value);
+  }
+  const area = formHtml.match(
+    new RegExp(`<textarea\\b[^>]*\\bname="${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"[^>]*>([\\s\\S]*?)</textarea>`, 'i')
+  );
+  if (area) return decodeAttr(area[1]);
+  return null;
+}
+
+/** `/ta/orders/:id/edit` の更新フォーム。
+ *  2026-10-23 に TA の編集画面で確認した。ステータスは
+ *  `order[status]` の select（保留中 / 注文済み / 受取可能 / 受取済み / キャンセル済み）。
+ *  他の項目を空で送ると元の値が消えるので、項目が欠けたら null を返す。 */
+export function parseTaOrderForm(html) {
+  const formRe = /<form\b([^>]*)>([\s\S]*?)<\/form>/gi;
+  let form;
+  while ((form = formRe.exec(html || ''))) {
+    const action = (form[1].match(/\baction="([^"]*)"/) || [])[1] || '';
+    const id = parseIdToken(action.split('/').pop());
+    if (!/^\/ta\/orders\/[0-9a-f-]{36}$/i.test(action) || id == null) continue;
+
+    const body = form[2];
+    const productName = namedControl(body, 'order[product_name]');
+    const amount = namedControl(body, 'order[amount]');
+    const quantity = namedControl(body, 'order[quantity]');
+    const shopName = namedControl(body, 'order[shop_name]');
+    const modelNumber = namedControl(body, 'order[model_number]');
+    const productUrl = namedControl(body, 'order[product_url]');
+    const memo = namedControl(body, 'order[memo]');
+    const select = body.match(/<select\b[^>]*\bname="order\[status\]"[^>]*>([\s\S]*?)<\/select>/i);
+    if ([productName, amount, quantity, shopName, modelNumber, productUrl, memo].includes(null)
+      || !select) {
+      return null;
+    }
+
+    const statusOptions = [];
+    let status = null;
+    const optRe = /<option\b([^>]*)>([\s\S]*?)<\/option>/gi;
+    let opt;
+    while ((opt = optRe.exec(select[1]))) {
+      const value = (opt[1].match(/\bvalue="([^"]*)"/) || [])[1] ?? '';
+      const label = text(opt[2]);
+      if (!value || !label) continue;
+      statusOptions.push({ value, label });
+      if (/\bselected\b/.test(opt[1])) status = value;
+    }
+    if (!status || !statusOptions.length) return null;
+
+    return {
+      id,
+      action,
+      productName,
+      amount,
+      quantity,
+      shopName,
+      modelNumber,
+      productUrl,
+      memo,
+      status,
+      statusOptions
+    };
+  }
+  return null;
+}
+
+/** 詳細 HTML の「商品URL」。一覧にはこのリンクが無い。 */
+export function parseTaProductUrl(html) {
+  const at = String(html || '').search(/商品URL/);
+  if (at < 0) return null;
+  const href = html.slice(at, at + 800).match(/href="(https?:\/\/[^"]+)"/i);
+  if (!href) return null;
+  const url = decodeAttr(href[1]);
+  return /^https?:\/\//i.test(url) ? url : null;
+}
+
+/** 何ページ取るか。1 ページの件数と総数から決める。上限で打ち切る。 */
+export function taPageCount(total, pageLength, cap = 15) {
+  const size = Number(pageLength);
+  if (!Number.isFinite(size) || size <= 0) return 1;
+  const all = Number.isFinite(total) && total > 0 ? total : size;
+  return Math.min(cap, Math.max(1, Math.ceil(all / size)));
+}
+
+/** `/ta/orders` の 1 ページ。
+ *  2026-10-23 に TA アカウントの実 HTML で確認した。
+ *  行 id は UUID（`id="order_<uuid>"`）。`<tbody>` だけを見るので
+ *  モバイルの `order_card_` とは重複しない。
+ *  型番・ショップは商品セルの中。メモは一覧 HTML に無い。 */
+export function parseTaOrders(html) {
+  const body = main(html);
+  const heading = headingText(body, 'h1');
+  const columns = parseTaColumns(body);
+  const looksLikeList = heading === '注文管理' || columns.some((c) => c.label === '商品');
+  if (!looksLikeList) {
+    return {
+      access: 'forbidden',
+      canTa: false,
+      heading,
+      columns: [],
+      orders: [],
+      statuses: [],
+      teams: [],
+      total: null,
+      empty: parseEmptyState(body)
+    };
+  }
+
+  const labels = columns.map((c) => c.label);
+  const tbody = body.match(/<tbody\b[^>]*>([\s\S]*?)<\/tbody>/);
+  const orders = [];
+  if (tbody) {
+    const trRe = /<tr\b([^>]*)>([\s\S]*?)<\/tr>/g;
+    let tr;
+    while ((tr = trRe.exec(tbody[1]))) {
+      const tds = [];
+      const tdRe = /<td\b[^>]*>([\s\S]*?)<\/td>/g;
+      let td;
+      while ((td = tdRe.exec(tr[2]))) tds.push(td[1]);
+      let cells = tds;
+      if (/<input\b[^>]*type="checkbox"/i.test(cells[0] || '')) cells = cells.slice(1);
+      if (cells.length === labels.length + 1) cells = cells.slice(0, labels.length);
+      if (!cells.length) continue;
+
+      const byLabel = {};
+      labels.forEach((label, i) => { byLabel[label] = cells[i] ?? ''; });
+
+      const idMatch = tr[1].match(/\bid="order_([^"]+)"/)
+        || tr[2].match(/\bdata-order-id="([^"]+)"/);
+      const productCell = byLabel['商品'] ?? '';
+      const { product, shopName, modelNumber } = readOrderProductCell(productCell);
+      const unitPrice = text(byLabel['単価'] ?? '');
+      const quantity = text(byLabel['数量'] ?? '');
+      const total = text(byLabel['合計'] ?? '');
+      const createdAt = text(byLabel['作成日時'] ?? byLabel['作成日'] ?? '');
+      const status = statusLabel(byLabel['ステータス'] ?? '');
+
+      const aligned = labels.map((label) => {
+        if (label === '商品') return product;
+        if (label === 'チーム') return teamName(byLabel[label] ?? '');
+        if (label === 'ステータス') return status;
+        return text(byLabel[label] ?? '');
+      });
+
+      orders.push({
+        id: idMatch ? parseIdToken(idMatch[1]) : null,
+        product,
+        shopName,
+        modelNumber,
+        team: teamName(byLabel['チーム'] ?? ''),
+        unitPrice,
+        quantity,
+        total,
+        status,
+        createdAt,
+        createdAtISO: toIso(createdAt),
+        unitPriceValue: toNumber(unitPrice),
+        quantityValue: quantityNumber(quantity),
+        totalValue: toNumber(total),
+        cells: aligned
+      });
+    }
+  }
+
+  return {
+    access: 'ok',
+    canTa: true,
+    heading,
+    columns,
+    orders,
+    statuses: selectOptions(html, 'status'),
+    teams: selectOptions(html, 'team_id'),
+    total: parseTaTotal(html),
+    empty: parseEmptyState(body)
   };
 }
 

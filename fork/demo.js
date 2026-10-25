@@ -199,7 +199,8 @@ function buildDashboard({ generation = 1 } = {}) {
     heading: 'ダッシュボード',
     team: 'チーム: 10(未定)',
     // 再取得のたびに文言が変わり、ライブ更新が見える
-    notice: generation <= 1 ? '調整中' : `調整中 · デモ再取得 #${generation}`
+    notice: generation <= 1 ? '調整中' : `調整中 · デモ再取得 #${generation}`,
+    canTa: true
   };
 }
 
@@ -250,6 +251,85 @@ function buildOrders({ generation = 1 } = {}) {
 
 export function demoOrders(opts = {}) {
   return cached('orders', buildOrders, opts);
+}
+
+// ── TA の注文 ──────────────────────────────────────
+const TA_ORDER_SEED = [
+  ['60d01939-3c2b-4d5c-a4aa-2966f2b12d9e', 'アルカリ乾電池 単3形', 'YSLR6K/4S', 'モノタロウ', '16: A4', 315, 1, '10/22 16:13', '注文済み', 'https://www.monotaro.com/g/00174701/', 'https://jp.images-monotaro.com/Monotaro3/pi/full/mono09509315-221021-02.jpg'],
+  ['add58cdd-1b14-4357-b746-27e4e6ab1650', 'ドアセンサースイッチ SPS-320', 'SPS-320N', '秋月電子通商', '16: A4', 400, 1, '10/22 15:54', '注文済み'],
+  ['d835bc9b-167e-4c36-9239-1117632edfa3', 'USB 変換アダプタ', null, 'Amazon', '10: 未定', 562, 1, '2026/10/01 16:19', '受取可能'],
+  ['09e6d85f-04ad-40c7-be06-e59798c914ae', 'M4 六角穴付ボルト', 'M4-12', 'モノタロウ', '10: 未定', 980, 3, '10/18 09:02', '受取済み']
+];
+
+const TA_STATUSES = [
+  { value: 'pending', label: '保留中' },
+  { value: 'ordered', label: '注文済み' },
+  { value: 'available', label: '受取可能' },
+  { value: 'received', label: '受取済み' },
+  { value: 'cancelled', label: 'キャンセル済み' }
+];
+
+function buildTaOrders({ generation = 1 } = {}) {
+  const orders = TA_ORDER_SEED.map(([
+    id, product, modelNumber, shopName, team, unitPrice, quantity, created, status,
+    productUrl, imageUrl
+  ]) => ({
+    id,
+    product,
+    modelNumber,
+    shopName,
+    team,
+    productUrl: productUrl || null,
+    imageUrl: imageUrl || null,
+    unitPrice: `¥${unitPrice.toLocaleString('ja-JP')}`,
+    quantity: `${quantity}個`,
+    total: `¥${(unitPrice * quantity).toLocaleString('ja-JP')}`,
+    status,
+    createdAt: created,
+    createdAtISO: created.startsWith(`${YEAR}/`) ? iso(`${YEAR}-10-01`) : null,
+    unitPriceValue: unitPrice,
+    quantityValue: quantity,
+    totalValue: unitPrice * quantity
+  }));
+
+  return {
+    access: 'ok',
+    canTa: true,
+    heading: '注文管理',
+    columns: [
+      { label: '商品' }, { label: 'チーム' }, { label: '単価' }, { label: '数量' },
+      { label: '合計' }, { label: 'ステータス' }, { label: '作成日時' }
+    ],
+    statuses: TA_STATUSES,
+    teams: [
+      { value: 'team-10', label: '10: 未定' },
+      { value: 'team-16', label: '16: A4' },
+      { value: 'team-21', label: '21: Maison Innovation（メゾンイノベーション）' }
+    ],
+    filters: {
+      status: [{ value: '', label: 'すべて' }, ...TA_STATUSES],
+      team: [
+        { value: '', label: 'すべて' },
+        { value: 'team-10', label: '10: 未定' },
+        { value: 'team-16', label: '16: A4' },
+        { value: 'team-21', label: '21: Maison Innovation（メゾンイノベーション）' }
+      ],
+      quantity: []
+    },
+    total: orders.length,
+    truncated: false,
+    empty: {
+      title: '注文がありません',
+      body: generation <= 1
+        ? ''
+        : `（デモ再取得 #${generation}）`
+    },
+    orders
+  };
+}
+
+export function demoTaOrders(opts = {}) {
+  return cached('ta-orders', buildTaOrders, opts);
 }
 
 export async function demoOrder(id, opts = {}) {
@@ -361,64 +441,6 @@ export function demoUnreadCount() {
   };
 }
 
-// ── TA ─────────────────────────────────────────────
-const TA_ORDER_SEED = [
-  ['a1111111-1111-4111-8111-111111111111', 'SN74LVC1G04DCKR', '02: うめおにぎり', 20, 2, '08-01', '注文済み'],
-  ['a2222222-2222-4222-8222-222222222222', 'アルミ丸棒 φ20', '01: RYKT', 1480, 4, '07-28', '受取可能'],
-  ['a3333333-3333-4333-8333-333333333333', 'ノギス 150mm', '03: (未定)', 5600, 1, '07-24', '保留中'],
-  ['a4444444-4444-4444-8444-444444444444', '切削油 1L', '02: うめおにぎり', 1750, 2, '07-10', '受取済み'],
-  ['a5555555-5555-4555-8555-555555555555', 'M4 ボルト 100本', '01: RYKT', 980, 3, '07-20', 'キャンセル済み']
-];
-
-function buildTaOrders({ generation = 1 } = {}) {
-  const orders = TA_ORDER_SEED.map(([id, product, team, unitPrice, quantity, created, status]) => ({
-    id,
-    product,
-    team,
-    unitPrice: `¥${unitPrice.toLocaleString('ja-JP')}`,
-    quantity: `${quantity}個`,
-    total: `¥${(unitPrice * quantity).toLocaleString('ja-JP')}`,
-    status,
-    createdAt: `${YEAR}/${md(created)}`,
-    createdAtISO: iso(`${YEAR}-${created}`),
-    unitPriceValue: unitPrice,
-    quantityValue: quantity,
-    totalValue: unitPrice * quantity
-  }));
-  return {
-    heading: '注文管理',
-    columns: [
-      { label: '商品' }, { label: 'チーム' }, { label: '単価' }, { label: '数量' },
-      { label: '合計' }, { label: 'ステータス' }, { label: '作成日時' }, { label: '操作' }
-    ],
-    empty: {
-      title: '注文がありません',
-      body: generation <= 1 ? '' : `（デモ再取得 #${generation}）`
-    },
-    filters: {
-      status: [
-        { value: '', label: 'すべて' },
-        { value: 'pending', label: '保留中' },
-        { value: 'ordered', label: '注文済み' },
-        { value: 'available', label: '受取可能' },
-        { value: 'received', label: '受取済み' },
-        { value: 'cancelled', label: 'キャンセル済み' }
-      ],
-      team: [
-        { value: '', label: 'すべて' },
-        { value: 't1', label: '01: RYKT' },
-        { value: 't2', label: '02: うめおにぎり' },
-        { value: 't3', label: '03: (未定)' }
-      ],
-      quantity: []
-    },
-    orders
-  };
-}
-
-export function demoTaOrders(opts = {}) {
-  return cached('ta-orders', buildTaOrders, opts);
-}
 
 export async function demoTaOrder(id, opts = {}) {
   const data = await demoTaOrders(opts);
@@ -437,9 +459,9 @@ export async function demoTaOrder(id, opts = {}) {
     fields: {
       単価: o.unitPrice,
       数量: o.quantity,
-      ショップ名: 'デモショップ',
-      型番: o.product,
-      商品URL: ''
+      ショップ名: o.shopName || 'デモショップ',
+      型番: o.modelNumber || o.product,
+      商品URL: o.productUrl || ''
     },
     history: [
       { title: '注文作成', detail: o.createdAt || null }

@@ -8,7 +8,8 @@ import { describe, test } from 'node:test';
 
 import { parseReportsPage, parseReportDetail } from '../src/parse.js';
 import {
-  parseDashboard, parseEquipments, parseLoans, parseNotifications, parseOrderDetail, parseOrders
+  parseDashboard, parseEquipments, parseLoans, parseNotifications,
+  parseOrderDetail, parseOrders, parseTaOrders
 } from '../src/parse-pages.js';
 import {
   parseTaOrderDetail, parseTaReportDetail, parseTaTeamDetail
@@ -35,6 +36,12 @@ describe('inspectParse · 実 HTML は想定どおり', () => {
       html,
       parseReportDetail(html)
     );
+    assert.equal(r.ok, true, r.reasons.join('; '));
+  });
+
+  test('TA の注文', () => {
+    const html = readFileSync(join(here, 'fixtures/ta-orders.html'), 'utf8');
+    const r = inspectParse('/ta/orders', html, parseTaOrders(html));
     assert.equal(r.ok, true, r.reasons.join('; '));
   });
 
