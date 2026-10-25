@@ -79,6 +79,7 @@ python3 test_responsive.py                       # 幅と挙動（要 playwright
 python3 test_pages.py                            # 実データにしか出ない形に対する描画
 cd ../deploy && python3 test/e2e.py              # ログインから 6 画面・ログアウト
 cd ../deploy && node --test test/*.mjs           # パーサと API
+node --test test_search.mjs                      # 一覧検索の AND / OR
 ```
 
 `test_pages.py` が見ているもの。デモデータは「きれいな形」しか含まないので、
@@ -120,6 +121,7 @@ cd ../deploy && node --test test/*.mjs           # パーサと API
 | `api.js` | `/api/*` を叩く薄い層 |
 | `ui.js` | 画面をまたいで使う DOM の部品 |
 | `format.js` | 日付・金額・期限の残りの整形 |
+| `search.js` | 一覧の検索。空白は AND、OR と縦棒は OR |
 | `demo.js` | デモデータ（API と同じ形） |
 | `notify.js` | 未読監視・ブラウザ通知・Discord ペイロード |
 | `notify-settings.js` | 通知画面の届け先設定（初回のみ開く） |

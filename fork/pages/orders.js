@@ -16,6 +16,7 @@
 import { api } from '../api.js';
 import { demoOrder, demoOrders } from '../demo.js';
 import { fmtDate, fmtYen, parseOrderQueryId, sameId } from '../format.js';
+import { SEARCH_HINT, matchesSearch } from '../search.js';
 import {
   dataTable, emptyBlock, h, historyTimeline, metaList, panel, productLink, statusPill, toasts
 } from '../ui.js';
@@ -109,13 +110,11 @@ export function render(data, ctx) {
   }
 
   function visible() {
-    const q = state.q.trim().toLowerCase();
     const dir = state.sortDir === 'asc' ? 1 : -1;
     return rows
       .filter((o) => {
         if (state.status !== 'all' && o.status !== state.status) return false;
-        if (q && !o.product.toLowerCase().includes(q)) return false;
-        return true;
+        return matchesSearch(o.product, state.q);
       })
       .sort((a, b) => {
         const x = sortValue(a);
@@ -156,7 +155,7 @@ export function render(data, ctx) {
   function buildToolbar() {
     const search = h('input', {
       class: 'input', type: 'search', id: 'q', name: 'q',
-      placeholder: 'アルミ', autocomplete: 'off', 'aria-describedby': 'q-hint',
+      placeholder: 'アルミ OR ボルト', autocomplete: 'off', 'aria-describedby': 'q-hint',
       value: state.q,
       oninput: (e) => { state.q = e.target.value; paint(); syncUrl(); }
     });
@@ -203,7 +202,8 @@ export function render(data, ctx) {
       h('div', { class: 'field field--search' },
         h('label', { class: 'field__label', for: 'q', text: '商品名で絞り込み' }),
         search,
-        h('p', { class: 'field__hint', id: 'q-hint' }, h('kbd', { text: '/' }), ' で移動')),
+        h('p', { class: 'field__hint', id: 'q-hint' },
+          SEARCH_HINT, ' · ', h('kbd', { text: '/' }), ' で移動')),
       h('div', { class: 'field field--status' },
         h('label', { class: 'field__label', for: 'status', text: 'ステータス' }),
         h('span', { class: 'select-wrap' }, statusSelect),

@@ -15,6 +15,7 @@ import {
   demoTaTeams, demoTaUsers
 } from '../demo.js';
 import { dueRest, fmtDate, fmtShort, fmtTime, sameId } from '../format.js';
+import { SEARCH_HINT, matchesSearch } from '../search.js';
 import {
   applyProfileToDoc, createLocalReport, deleteLocalReport, documentTitle,
   filledWeeks, fillProfileBlanks, getProfile, hasProfile, isProfileEmpty,
@@ -38,6 +39,15 @@ const o = { q: '', status: 'all', sortKey: 'due', sortDir: 'asc', selectedId: nu
 const l = { q: '', status: 'all', sort: 'updatedAt:desc', selectedId: null };
 let tab = 'origin';
 
+/** 絞り込みのたびに欄を作り直すので、入力中のカーソルを戻す。 */
+function keepSearchCaret(id, pos) {
+  const input = document.getElementById(id);
+  if (!input) return;
+  input.focus();
+  if (typeof pos !== 'number') return;
+  const at = Math.min(pos, input.value.length);
+  input.setSelectionRange(at, at);
+}
 
 function parseReportQueryId(raw) {
   if (!raw) return null;
@@ -251,13 +261,11 @@ export function render(data, ctx) {
   }
 
   function originVisible() {
-    const q = o.q.trim().toLowerCase();
     const dir = o.sortDir === 'asc' ? 1 : -1;
     return originRows
       .filter((r) => {
         if (o.status !== 'all' && r.status !== o.status) return false;
-        if (!q) return true;
-        return `${r.title} ${r.periodText}`.toLowerCase().includes(q);
+        return matchesSearch(`${r.title} ${r.periodText}`, o.q);
       })
       .sort((a, b) => {
         const x = originSortValue(a) ?? '';
@@ -297,14 +305,20 @@ export function render(data, ctx) {
           h('label', { class: 'field__label', for: 'q', text: '絞り込み' }),
           h('input', {
             class: 'input', type: 'search', id: 'q', value: o.q,
-            placeholder: 'タイトル・期間で検索',
+            placeholder: 'タイトル OR 期間', autocomplete: 'off',
+            'aria-describedby': 'q-hint',
             oninput: (e) => {
               o.q = e.target.value;
+              // 変換中に欄を作り直すと、日本語入力が途中で確定する。
+              if (e.isComposing) return;
+              const pos = e.target.selectionStart ?? e.target.value.length;
               paintTab();
               syncUrl();
+              keepSearchCaret('q', pos);
             }
           }),
-          h('p', { class: 'field__hint', id: 'q-hint' }, h('kbd', { text: '/' }), ' で移動')),
+          h('p', { class: 'field__hint', id: 'q-hint' },
+            SEARCH_HINT, ' · ', h('kbd', { text: '/' }), ' で移動')),
         h('fieldset', { class: 'field field--status' },
           h('legend', { class: 'field__label', text: 'ステータス' }),
           h('div', { class: 'segmented' },
@@ -769,14 +783,12 @@ export function render(data, ctx) {
   }
 
   function localVisible() {
-    const q = l.q.trim().toLowerCase();
     const [key, dirRaw] = l.sort.split(':');
     const dir = dirRaw === 'asc' ? 1 : -1;
     return localRows
       .filter((r) => {
         if (l.status !== 'all' && r.status !== l.status) return false;
-        if (!q) return true;
-        return localSearchHay(r).includes(q);
+        return matchesSearch(localSearchHay(r), l.q);
       })
       .sort((a, b) => {
         const x = a[key] || '';
@@ -801,13 +813,18 @@ export function render(data, ctx) {
           h('label', { class: 'field__label', for: 'lq', text: '絞り込み' }),
           h('input', {
             class: 'input', type: 'search', id: 'lq', value: l.q,
-            placeholder: 'チーム名・概要・週の内容',
+            placeholder: 'チーム名 OR 概要', autocomplete: 'off',
+            'aria-describedby': 'lq-hint',
             oninput: (e) => {
               l.q = e.target.value;
+              if (e.isComposing) return;
+              const pos = e.target.selectionStart ?? e.target.value.length;
               paintTab();
               syncUrl();
+              keepSearchCaret('lq', pos);
             }
-          })),
+          }),
+          h('p', { class: 'field__hint', id: 'lq-hint', text: SEARCH_HINT }))),
         h('fieldset', { class: 'field field--status' },
           h('legend', { class: 'field__label', text: 'ステータス' }),
           h('div', { class: 'segmented' },
@@ -1527,7 +1544,8 @@ export function render(data, ctx) {
         return;
       }
       const search = h('input', {
-        class: 'input', type: 'search', placeholder: 'タイトルで絞り込み',
+        class: 'input', type: 'search', placeholder: 'タイトル OR 週',
+        'aria-describedby': 'copy-q-hint',
         oninput: paintItems
       });
       const itemsHost = h('div', { class: 'itemlist' });
@@ -1537,13 +1555,14 @@ export function render(data, ctx) {
           text: '選んだ週報を下書きテンプレートへコピーします（提出用は変わりません）。'
         }),
         h('div', { class: 'field' },
-          h('label', { class: 'field__label', text: '絞り込み' }), search),
+          h('label', { class: 'field__label', text: '絞り込み' }),
+          search,
+          h('p', { class: 'field__hint', id: 'copy-q-hint', text: SEARCH_HINT })),
         itemsHost);
 
       function paintItems() {
-        const q = search.value.trim().toLowerCase();
         const shown = list.filter((r) =>
-          !q || String(r.title || '').toLowerCase().includes(q));
+          matchesSearch(String(r.title || ''), search.value));
         itemsHost.replaceChildren(...shown.map((r) => h('button', {
           class: 'item item--button', type: 'button',
           onclick: () => copyOriginToLocal(r)

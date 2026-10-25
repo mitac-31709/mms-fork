@@ -9,6 +9,7 @@
 import { api } from '../api.js';
 import { demoTaOrder, demoTaOrders } from '../demo.js';
 import { fmtDate, fmtYen, parseOrderQueryId, sameId } from '../format.js';
+import { SEARCH_HINT, matchesSearch } from '../search.js';
 import { dataTable, emptyBlock, h, historyTimeline, metaList, panel, statusPill, toasts, productLink } from '../ui.js';
 
 export const meta = {
@@ -126,16 +127,13 @@ export function render(data, ctx) {
   }
 
   function visible() {
-    const q = state.q.trim().toLowerCase();
     const dir = state.sortDir === 'asc' ? 1 : -1;
     return rows
       .filter((o) => {
         if (state.status !== 'all' && o.status !== state.status) return false;
         if (state.team !== 'all' && o.team !== state.team) return false;
-        if (!q) return true;
-        const hay = [o.product, o.modelNumber, o.shopName, o.team, o.status]
-          .join('\n').toLowerCase();
-        return hay.includes(q);
+        const hay = [o.product, o.modelNumber, o.shopName, o.team, o.status].join('\n');
+        return matchesSearch(hay, state.q);
       })
       .sort((a, b) => {
         const x = sortValue(a);
@@ -176,7 +174,7 @@ export function render(data, ctx) {
   function buildToolbar(statusOptions, teamOptions) {
     const search = h('input', {
       class: 'input', type: 'search', id: 'q', name: 'q',
-      placeholder: '型番・商品名・ショップ', autocomplete: 'off',
+      placeholder: '型番・商品・ショップ・チーム', autocomplete: 'off',
       'aria-describedby': 'q-hint',
       value: state.q,
       oninput: (e) => { state.q = e.target.value; paint(); syncUrl(); }
@@ -222,8 +220,7 @@ export function render(data, ctx) {
       h('div', { class: 'field field--search' },
         h('label', { class: 'field__label', for: 'q', text: '検索' }),
         search,
-        h('p', { class: 'field__hint', id: 'q-hint' },
-          '型番・商品名・ショップ・チーム')),
+        h('p', { class: 'field__hint', id: 'q-hint', text: SEARCH_HINT })),
       h('div', { class: 'field field--status' },
         h('label', { class: 'field__label', for: 'status', text: 'ステータス' }),
         h('span', { class: 'select-wrap' }, statusSelect),
