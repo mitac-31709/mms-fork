@@ -14,9 +14,11 @@
  */
 
 import { api } from '../api.js';
-import { demoOrders } from '../demo.js';
+import { demoOrder, demoOrders } from '../demo.js';
 import { fmtDate, fmtYen } from '../format.js';
-import { dataTable, emptyBlock, h, metaList, panel, statusPill, toasts } from '../ui.js';
+import {
+  dataTable, emptyBlock, h, historyTimeline, metaList, panel, statusPill, toasts
+} from '../ui.js';
 
 export const meta = { route: '/orders', nav: '注文', title: '注文' };
 
@@ -332,7 +334,9 @@ export function render(data, ctx) {
   }
 
   // ── 詳細パネル。元アプリに書き込み口が無いので読むだけ ──
-  function openDetail(id, { focus = true } = {}) {
+  // 行の値ですぐ開き、注文ステータス履歴だけ後から足す。
+  // 履歴の取得に失敗しても行の内容は残る。
+  async function openDetail(id, { focus = true } = {}) {
     const o = rows.find((x) => sameId(x.id, id));
     if (!o) return;
 
@@ -368,6 +372,28 @@ export function render(data, ctx) {
     });
 
     if (!focus) document.activeElement?.blur?.();
+
+    try {
+      const detail = ctx.demo ? await demoOrder(id) : await api.order(id);
+      // 別行へ移っていたら差し替えない
+      if (!sameId(state.selectedId, id)) return;
+      // 行に無い項目（販売サイト・型番・メモ）だけ足す。単価・数量は行と同じ。
+      const shown = new Set(['商品', '単価', '数量', '合計', 'ステータス', '作成日']);
+      const extra = Object.entries(detail.fields || {})
+        .filter(([k, v]) => !shown.has(k) && v);
+      const entries = [
+        ['商品', detail.product || o.product || '—'],
+        ['単価', detail.unitPrice || o.unitPriceText],
+        ['数量', detail.quantity || o.quantityText],
+        ['合計', detail.total || o.totalText],
+        ['ステータス', statusPill(detail.status || o.status)],
+        ['作成日', detail.createdAt || o.createdText || '—'],
+        ...extra.map(([k, v]) => [k, v || '—'])
+      ];
+      panel.update({ body: [metaList(entries), historyTimeline(detail.history)] });
+    } catch {
+      // 行の内容のまま。履歴なしでも注文は読める
+    }
   }
 
   // ── 新しい注文。元アプリの /orders/new と同じ項目 ──

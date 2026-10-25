@@ -17,7 +17,13 @@
  * 読めなければ null を返して呼び出し側に判断を渡す。
  */
 
-import { text, toIso, parseColumns, parseEmptyState, parseIdToken } from './parse.js';
+import {
+  extractSidePanel, parseOrderHistory, text, toIso,
+  parseColumns, parseEmptyState, parseIdToken
+} from './parse.js';
+
+/** 注文ステータスの現行語彙（学生・TA 共通）。 */
+const ORDER_STATUSES = ['保留中', '注文済み', '受取可能', '受取済み', 'キャンセル済み'];
 
 /** 「¥1,200」「1,200円」「2」を数値にする。読めなければ null。
  *  0 と「読めなかった」を混ぜないため、NaN も 0 も作らない。 */
@@ -227,6 +233,79 @@ export function parseOrders(html) {
     columns,
     empty: parseEmptyState(body),
     orders: parseOrderRows(body, columns)
+  };
+}
+
+/** 学生の注文詳細 `/orders/:id`。
+ *
+ * TA の `/ta/orders/:id/details` と同じ器（side_panel の断片、
+ * 実 HTML は全ページのこともある）。商品・ステータス・チーム・合計・
+ * 項目（label/p 対）・チーム累計予算・注文ステータス履歴を取る。
+ * 項目名は HTML の label を素通しし、語彙を作らない。
+ */
+export function parseOrderDetail(html) {
+  const frame = /<turbo-frame\b[^>]*\bside_panel\b/i.test(String(html || ''))
+    ? extractSidePanel(html)
+    : String(html || '');
+  const body = frame;
+  const title = body.match(/<h2\b[^>]*class="[^"]*text-2xl[^"]*"[^>]*>([\s\S]*?)<\/h2>/i);
+
+  let status = '';
+  for (const s of ORDER_STATUSES) {
+    // ステータス pill 内の語だけ（商品名の隣接を拾わない）
+    if (new RegExp(`(?:animate-pulse|rounded-full)[\\s\\S]{0,80}>\\s*${s}\\s*<`).test(body)
+      || new RegExp(`>\\s*${s}\\s*<\\/span>`).test(body)) {
+      status = s;
+      break;
+    }
+  }
+  if (!status) {
+    for (const s of ORDER_STATUSES) {
+      if (body.includes(s)) { status = s; break; }
+    }
+  }
+
+  const team = (
+    body.match(/rounded-lg whitespace-nowrap">\s*<span[^>]*>([\s\S]*?)<\/span>/)
+  );
+  const total = (body.match(/text-3xl[^>]*>\s*([^<]+)\s*</) || [])[1] || null;
+
+  const fields = {};
+  const labelRe = /<label\b[^>]*>([\s\S]*?)<\/label>[\s\S]{0,80}?<p\b[^>]*>([\s\S]*?)<\/p>/gi;
+  let lm;
+  while ((lm = labelRe.exec(body))) {
+    const label = text(lm[1]);
+    const value = text(lm[2]);
+    if (label && value) fields[label] = value;
+  }
+  for (const label of ['単価', '数量', '販売サイトタイプ', 'ショップ名', '型番', '商品URL', 'メモ']) {
+    if (fields[label]) continue;
+    const re = new RegExp(
+      `<label\\b[^>]*>\\s*${label}\\s*<\\/label>[\\s\\S]{0,120}?<p\\b[^>]*>([\\s\\S]*?)<\\/p>`,
+      'i'
+    );
+    const m = body.match(re);
+    if (m) fields[label] = text(m[1]);
+  }
+
+  const budget = (body.match(/チーム累計予算使用額[\s\S]{0,200}?text-xl[^>]*>\s*([^<]+)/)
+    || [])[1] || null;
+
+  const id = parseIdToken(
+    (body.match(/\/orders\/([^/"'?]+)/) || [])[1]
+  );
+
+  return {
+    id,
+    product: title ? text(title[1]) : '',
+    status,
+    team: team ? text(team[1]) : null,
+    total: total ? text(total) : null,
+    totalValue: toNumber(total),
+    teamBudget: budget ? text(budget) : null,
+    fields,
+    history: parseOrderHistory(body),
+    editHref: id ? `/orders/${id}/edit` : null
   };
 }
 

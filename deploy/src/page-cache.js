@@ -196,7 +196,7 @@ function coalesce(key, fn) {
 /** 既定の Cache API バックエンド。 */
 export const pageCache = createPageCache();
 
-/** 注文作成などでまとめて消す画面。 */
+/** 注文作成・ビュー切替などでまとめて消す画面。 */
 export const PAGE_CACHE_PATHS = [
   '/dashboard',
   '/reports',
@@ -204,5 +204,10 @@ export const PAGE_CACHE_PATHS = [
   '/equipments',
   '/loans',
   '/notifications',
-  '/notifications/unread_count'
+  '/notifications/unread_count',
+  '/ta',
+  '/ta/orders?per_page=100',
+  '/ta/reports',
+  '/ta/teams',
+  '/ta/users?per_page=100'
 ];

@@ -15,7 +15,7 @@ import { dirname, join } from 'node:path';
 
 import {
   parseReportsPage, parseCounts, parseColumns, parseEmptyState,
-  parseRows, parseReportDetail, extractSidePanel, toIso, splitRange,
+  parseRows, parseReportDetail, parseOrderHistory, extractSidePanel, toIso, splitRange,
   looksLikeSignIn, authenticityToken, text, parseIdToken
 } from '../src/parse.js';
 
@@ -289,4 +289,34 @@ test('実 HTML の詳細画面は本文項目を持たずタイトルを返す',
   assert.equal(parsed.fields.length, 0);
   assert.ok(parsed.meta.some((m) => m.label === '提出期限'));
   assert.ok(parsed.meta.some((m) => m.label === '作業期間' && m.value === '期間未設定'));
+});
+
+// ── 注文ステータス履歴 ──
+// 元アプリの注文詳細にある Timeline。週報の `.timeline-item` とは器が違う
+//（`注文ステータス履歴` の見出し + `ml-4 flex-1` の塊）。
+
+test('注文ステータス履歴の 2 段（太字タイトル + 細字補足）を順序のまま取る', () => {
+  const html = `
+    <h3>注文ステータス履歴</h3>
+    <div class="ml-4 flex-1"><p class="font-bold">注文作成</p><p>2026/10/01 16:19</p></div>
+    <div class="ml-4 flex-1"><p class="font-bold">注文承認</p><p>注文済み</p></div>`;
+  assert.deepEqual(parseOrderHistory(html), [
+    { title: '注文作成', detail: '2026/10/01 16:19' },
+    { title: '注文承認', detail: '注文済み' }
+  ]);
+});
+
+test('見出しが無ければ空（週報など履歴の無い画面）', () => {
+  assert.deepEqual(parseOrderHistory('<main><h1>週報</h1></main>'), []);
+});
+
+test('履歴の後のコメント節は範囲外', () => {
+  const html = `
+    <h3>注文ステータス履歴</h3>
+    <div class="ml-4 flex-1"><p>注文作成</p><p>2026/10/01</p></div>
+    <!-- Comments -->
+    <div class="ml-4 flex-1"><p>コメント投稿</p><p>本文</p></div>`;
+  assert.deepEqual(parseOrderHistory(html), [
+    { title: '注文作成', detail: '2026/10/01' }
+  ]);
 });

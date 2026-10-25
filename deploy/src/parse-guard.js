@@ -41,16 +41,72 @@ export const PAGE_EXPECTATIONS = {
   },
   '/reports/:id': {
     kind: 'report-detail'
+  },
+  // 学生の注文詳細 `/orders/:id`。side_panel の断片か全ページ。
+  '/orders/:id': {
+    kind: 'order-detail'
+  },
+  // `/ta/orders/:id/details` は Turbo Frame の断片が正常形。
+  // `<main>` / `<body>` を持たないので器の判定は frame で行う。
+  '/ta/orders/:id': {
+    kind: 'ta-order-detail'
+  },
+  // TA チームの詳細 `/ta/teams/:id`。直接開くと全ページの器。
+  '/ta/teams/:id': {
+    kind: 'ta-team-detail'
+  },
+  '/ta': {
+    kind: 'dashboard',
+    heading: 'TAダッシュボード'
+  },
+  '/ta/orders': {
+    kind: 'table',
+    columns: ['商品', 'チーム', '単価', '数量', '合計', 'ステータス', '作成日時', '操作'],
+    itemsKey: 'orders'
+  },
+  '/ta/reports': {
+    kind: 'table',
+    columns: ['チーム', 'タイトル', '期間', 'ステータス', '期限'],
+    itemsKey: 'reports'
+  },
+  // TA 週報の詳細 `/ta/reports/:id`。直接開くと全ページ、frame 断片のこともある。
+  '/ta/reports/:id': {
+    kind: 'ta-report-detail'
+  },
+  '/ta/teams': {
+    kind: 'list',
+    heading: 'チーム管理',
+    itemsKey: 'teams'
+  },
+  '/ta/users': {
+    kind: 'list',
+    heading: 'ユーザー一覧 (TA)',
+    itemsKey: 'users'
   }
 };
 
-/** `/reports/114` や `/reports/<uuid>/edit` を `/reports/:id` の想定に寄せる。 */
+/** `/reports/114` や `/reports/<uuid>/edit` を `/reports/:id` の想定に寄せる。
+ *  TA のクエリ付き path（`?per_page=` / `?submission_id=`）も正規化する。 */
 export function expectationPath(path) {
+  const bare = String(path || '').split('?')[0];
+  if (PAGE_EXPECTATIONS[bare]) return bare;
   if (PAGE_EXPECTATIONS[path]) return path;
-  if (/^\/reports\/(?:\d+|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\/edit)?$/i.test(path)) {
+  if (/^\/reports\/(?:\d+|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\/edit)?$/i.test(bare)) {
     return '/reports/:id';
   }
-  return path;
+  if (/^\/orders\/(?:\d+|[0-9a-f-]{36})(?:\/details)?$/i.test(bare)) {
+    return '/orders/:id';
+  }
+  if (/^\/ta\/orders\/(?:\d+|[0-9a-f-]{36})\/details$/i.test(bare)) {
+    return '/ta/orders/:id';
+  }
+  if (/^\/ta\/reports\/(?:\d+|[0-9a-f-]{36})$/i.test(bare)) {
+    return '/ta/reports/:id';
+  }
+  if (/^\/ta\/teams\/(?:\d+|[0-9a-f-]{36})$/i.test(bare)) {
+    return '/ta/teams/:id';
+  }
+  return bare;
 }
 
 /**
@@ -70,7 +126,9 @@ export function inspectParse(path, html, parsed) {
     reasons.push(`HTML が短すぎる（${html.length} 文字）`);
   }
 
-  if (!/<main\b/i.test(html) && !/<body\b/i.test(html)) {
+  // Turbo Frame の断片（注文詳細など）は器が無くて正常。
+  // frame 自体が無いものだけを「器が無い」とする。
+  if (!/<main\b/i.test(html) && !/<body\b/i.test(html) && !/<turbo-frame\b/i.test(html)) {
     reasons.push('<main> も <body> も無い');
   }
 
@@ -103,6 +161,18 @@ export function inspectParse(path, html, parsed) {
       break;
     case 'report-detail':
       inspectReportDetail(html, parsed, reasons);
+      break;
+    case 'ta-order-detail':
+      inspectTaOrderDetail(html, parsed, reasons);
+      break;
+    case 'ta-report-detail':
+      inspectTaReportDetail(html, parsed, reasons);
+      break;
+    case 'ta-team-detail':
+      inspectTaTeamDetail(html, parsed, reasons);
+      break;
+    case 'order-detail':
+      inspectOrderDetail(html, parsed, reasons);
       break;
     default:
       reasons.push(`未知の kind: ${expect.kind}`);
@@ -171,6 +241,61 @@ function inspectReportDetail(html, parsed, reasons) {
     if (!got.has(name)) {
       reasons.push(`data-field-name="${name}" の項目がパース結果に無い`);
     }
+  }
+}
+
+/** TA 注文詳細。`/ta/orders/:id/details` は side_panel の断片が正常形。 */
+function inspectTaOrderDetail(html, parsed, reasons) {
+  if (!/<turbo-frame\b[^>]*\bside_panel\b/i.test(String(html || ''))) {
+    reasons.push('注文詳細の turbo-frame（side_panel）が無い');
+  }
+  if (!parsed || typeof parsed !== 'object') {
+    reasons.push('パース結果がオブジェクトではない');
+    return;
+  }
+  if (!String(parsed.product || '').trim()) {
+    reasons.push('商品名が取れない');
+  }
+}
+
+/** TA 週報の詳細。タイトルと本文項目（fields）は必須。 */
+function inspectTaReportDetail(html, parsed, reasons) {
+  if (!parsed || typeof parsed !== 'object') {
+    reasons.push('パース結果がオブジェクトではない');
+    return;
+  }
+  if (!String(parsed.title || '').trim()) {
+    reasons.push('週報のタイトルが取れない');
+  }
+  if (!parsed.fields || typeof parsed.fields !== 'object') {
+    reasons.push('本文項目（fields）が取れない');
+  }
+}
+/** TA チームの詳細。チーム名は必須、メンバーは配列であること。 */
+function inspectTaTeamDetail(html, parsed, reasons) {
+  if (!parsed || typeof parsed !== 'object') {
+    reasons.push('パース結果がオブジェクトではない');
+    return;
+  }
+  if (!String(parsed.name || '').trim()) {
+    reasons.push('チーム名が取れない');
+  }
+  if (!Array.isArray(parsed.members)) {
+    reasons.push('members が配列ではない');
+  }
+}
+
+/** 学生の注文詳細。商品名は必須、履歴は配列であること。 */
+function inspectOrderDetail(html, parsed, reasons) {
+  if (!parsed || typeof parsed !== 'object') {
+    reasons.push('パース結果がオブジェクトではない');
+    return;
+  }
+  if (!String(parsed.product || '').trim()) {
+    reasons.push('商品名が取れない');
+  }
+  if (!Array.isArray(parsed.history)) {
+    reasons.push('history が配列ではない');
   }
 }
 

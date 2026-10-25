@@ -5,15 +5,17 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Meister Management System</title>
 
-<link rel="icon" href="favicon.ico" sizes="48x48">
-<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon.ico" sizes="48x48">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500&family=JetBrains+Mono:wght@500&family=Zen+Kaku+Gothic+New:wght@500;700&family=Noto+Sans+JP:wght@400;500&display=swap">
 
-<link rel="stylesheet" href="tokens.css">
-<link rel="stylesheet" href="app.css">
+<!-- ルート絶対にしておく。/ta/orders のような 2 階層 URL を直開きしても
+     相対だと /ta/app.js を取りに行き、SPA フォールバックの HTML が返る。 -->
+<link rel="stylesheet" href="/tokens.css">
+<link rel="stylesheet" href="/app.css">
 </head>
 <body>
 
@@ -81,10 +83,10 @@
     <nav class="rail__nav" id="rail-nav" aria-label="メインナビゲーション">
       <ul class="rail__list" id="rail-list">
         <li><a class="rail__link" href="/dashboard" data-route="/dashboard">ダッシュボード</a></li>
+        <li><a class="rail__link" href="/reports" data-route="/reports">週報</a></li>
         <li><a class="rail__link" href="/orders" data-route="/orders">注文</a></li>
         <li><a class="rail__link" href="/equipments" data-route="/equipments">機材</a></li>
         <li><a class="rail__link" href="/loans" data-route="/loans">貸出</a></li>
-        <li><a class="rail__link" href="/reports" data-route="/reports">週報</a></li>
       </ul>
 
       <div class="rail__foot">
@@ -96,6 +98,9 @@
           <span class="rail__user-name" id="user-name"></span>
           <span class="rail__user-meta" id="user-meta"></span>
         </p>
+        <button class="rail__link rail__link--quiet" type="button" id="mode-switch" hidden>
+          TAビューへ
+        </button>
         <button class="rail__link rail__link--quiet" type="button" id="logout">
           ログアウト
         </button>
@@ -136,6 +141,6 @@
 
 <div class="toasts" id="toasts" aria-live="polite" aria-atomic="false"></div>
 
-<script type="module" src="app.js"></script>
+<script type="module" src="/app.js"></script>
 </body>
 </html>

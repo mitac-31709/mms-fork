@@ -11,13 +11,13 @@
  */
 
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 import {
-  parseUser, parseDashboard, parseOrders, parseOrderRows,
+  parseUser, parseDashboard, parseOrders, parseOrderDetail, parseOrderRows,
   parseEquipments, parseLoans, parseNotifications, toNumber
 } from '../src/parse-pages.js';
 
@@ -424,4 +424,48 @@ test('印の無い通知は器の <li> から拾い、id は null にする', ()
   assert.deepEqual(parseNotifications(unmarked).notifications, [
     { id: null, title: 'お知らせ', body: '本文', at: null, atISO: null, read: null }
   ]);
+});
+
+// ── 学生の注文詳細 `/orders/:id` ──
+// side_panel の断片が正常形。TA 詳細と同じ器。
+
+const studentOrderFixture = existsSync('/tmp/order_detail.html')
+  ? readFileSync('/tmp/order_detail.html', 'utf8')
+  : null;
+
+if (studentOrderFixture) {
+  test('実 HTML から学生の注文詳細と履歴を取れる', () => {
+    const d = parseOrderDetail(studentOrderFixture);
+    assert.ok(d.product);
+    assert.ok(['保留中', '注文済み', '受取可能', '受取済み', 'キャンセル済み'].includes(d.status), d.status);
+    assert.ok(Array.isArray(d.history));
+    assert.ok(d.history.length >= 1);
+    assert.equal(d.history[0].title, '注文作成');
+  });
+}
+
+test('合成した学生の注文詳細から商品・履歴を取れる', () => {
+  const html = `
+    <turbo-frame id="side_panel">
+      <h2 class="text-2xl font-bold">アルミ丸棒</h2>
+      <span class="rounded-full">注文済み</span>
+      <div><label>ショップ名</label><p>モノタロウ</p></div>
+      <h3>注文ステータス履歴</h3>
+      <div class="ml-4 flex-1"><p>注文作成</p><p>2026/10/01 16:19</p></div>
+      <div class="ml-4 flex-1"><p>注文承認</p><p>注文済み</p></div>
+    </turbo-frame>`;
+  const d = parseOrderDetail(html);
+  assert.equal(d.product, 'アルミ丸棒');
+  assert.equal(d.status, '注文済み');
+  assert.equal(d.fields['ショップ名'], 'モノタロウ');
+  assert.deepEqual(d.history, [
+    { title: '注文作成', detail: '2026/10/01 16:19' },
+    { title: '注文承認', detail: '注文済み' }
+  ]);
+});
+
+test('履歴の無い詳細でも history は配列（呼び出し側がそのまま渡せる）', () => {
+  const d = parseOrderDetail('<turbo-frame id="side_panel"><h2 class="text-2xl">部品</h2></turbo-frame>');
+  assert.equal(d.product, '部品');
+  assert.deepEqual(d.history, []);
 });

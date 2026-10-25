@@ -80,7 +80,8 @@ test('セッション無しでは全ての取得口が 401', async () => {
   for (const path of ['/api/me', '/api/dashboard', '/api/reports', '/api/reports/1',
     '/api/orders',
     '/api/equipments', '/api/loans', '/api/notifications',
-    '/api/notifications/unread_count']) {
+    '/api/notifications/unread_count',
+    '/api/ta', '/api/ta/orders', '/api/ta/reports', '/api/ta/teams', '/api/ta/users']) {
     const res = await getNoAuth(path);
     assert.equal(res.status, 401, `${path} が ${res.status}`);
     assert.equal((await res.json()).code, 'unauthenticated', `${path} の code`);
@@ -113,6 +114,10 @@ test('/api/me は元アプリから読んだ表示名を返す', async () => {
   assert.equal(res.status, 200);
   const { user } = await res.json();
   assert.ok(user.name && user.name.trim(), `表示名が空: ${JSON.stringify(user)}`);
+  assert.ok(user.mode === 'ta' || user.mode === 'student',
+    `mode が無い: ${JSON.stringify(user)}`);
+  assert.equal(typeof user.canTa, 'boolean');
+  assert.equal(typeof user.canSwitch, 'boolean');
 });
 
 test('改竄した Cookie は 401 になり、こちらの Cookie も落とす', async () => {
@@ -126,6 +131,34 @@ const assertLiveOrCached = (body, path) => {
     `${path} の source が想定外: ${body.source}`);
   assert.ok(body.fetchedAt, `${path} に fetchedAt が無い`);
 };
+
+test('/api/ta 系は TA モードなら一覧を返す', async () => {
+  const me = await (await get('/api/me')).json();
+  if (me.user?.mode !== 'ta' && !me.user?.canTa) {
+    // 学生専用アカウントならスキップ相当（空アサーション）
+    return;
+  }
+  // いま学生ビューなら一度 TA へ
+  if (me.user?.mode !== 'ta' && me.user?.canSwitch) {
+    const switched = await get('/api/view_mode', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: 'ta' })
+    });
+    assert.equal(switched.status, 200, await switched.text());
+    const set = (switched.headers.get('set-cookie') || '').split(';')[0];
+    if (set) cookie = set;
+  }
+
+  const orders = await (await get('/api/ta/orders')).json();
+  assertLiveOrCached(orders, '/api/ta/orders');
+  assert.equal(orders.heading, '注文管理');
+  assert.ok(Array.isArray(orders.orders));
+
+  const teams = await (await get('/api/ta/teams')).json();
+  assertLiveOrCached(teams, '/api/ta/teams');
+  assert.ok(Array.isArray(teams.teams));
+});
 
 test('/api/dashboard', async () => {
   const body = await (await get('/api/dashboard')).json();

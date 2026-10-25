@@ -47,6 +47,13 @@ export const api = {
   }),
   logout: () => request('/api/session', { method: 'DELETE' }),
 
+  /** TA / 学生ビュー切替。成功すると user.mode が返る。 */
+  switchViewMode: (mode) => request('/api/view_mode', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode })
+  }),
+
   dashboard: (opts) => request('/api/dashboard', opts),
   reports: (opts) => request('/api/reports', opts),
   report: (id, opts) => request(`/api/reports/${encodeURIComponent(id)}`, opts),
@@ -57,6 +64,8 @@ export const api = {
     body: JSON.stringify({ fieldName, content })
   }),
   orders: (opts) => request('/api/orders', opts),
+  /** 注文詳細（注文ステータス履歴つき）。元アプリの `/orders/:id` を読む。 */
+  order: (id, opts) => request(`/api/orders/${encodeURIComponent(id)}`, opts),
   equipments: (opts) => request('/api/equipments', opts),
   loans: (opts) => request('/api/loans', opts),
   notifications: (opts) => request('/api/notifications', opts),
@@ -70,6 +79,30 @@ export const api = {
   markAllNotificationsRead: () => request('/api/notifications/mark_all_as_read', {
     method: 'PATCH'
   }),
+
+  // ── TA ──────────────────────────────────────────
+  taDashboard: (opts) => request('/api/ta', opts),
+  taOrders: (opts) => request('/api/ta/orders', opts),
+  taOrder: (id, opts) => request(`/api/ta/orders/${encodeURIComponent(id)}`, opts),
+  taBulkAvailable: (orderIds) => request('/api/ta/orders/bulk_update_status', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ orderIds, status: 'available' })
+  }),
+  taReports: (opts = {}) => {
+    const refresh = Boolean(opts.refresh);
+    const submissionId = opts.submissionId || opts.submission_id || null;
+    const u = new URL('/api/ta/reports', location.origin);
+    if (submissionId) u.searchParams.set('submission_id', submissionId);
+    if (refresh) u.searchParams.set('refresh', '1');
+    return request(u.pathname + u.search);
+  },
+  /** TA 週報の詳細（読み取り専用）。元アプリの `/ta/reports/:id` を読む。 */
+  taReport: (id, opts) => request(`/api/ta/reports/${encodeURIComponent(id)}`, opts),
+  taTeams: (opts) => request('/api/ta/teams', opts),
+  /** TA チームの詳細（読み取り専用）。元アプリの `/ta/teams/:id` を読む。 */
+  taTeam: (id, opts) => request(`/api/ta/teams/${encodeURIComponent(id)}`, opts),
+  taUsers: (opts) => request('/api/ta/users', opts),
 
   /** Discord Incoming Webhook へ Worker 経由で送る。即時中継（URL は残さない）。 */
   notifyDiscord: (webhookUrl, payload) => request('/api/notify/discord', {
