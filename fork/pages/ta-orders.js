@@ -7,16 +7,11 @@
  */
 
 import { api } from '../api.js';
-import { demoTaOrder, demoTaOrders } from '../demo.js';
-import { fmtDate, fmtYen, parseOrderQueryId, sameId } from '../format.js';
-import { dataTable, emptyBlock, h, historyTimeline, metaList, panel, statusPill, toasts } from '../ui.js';
+import { demoTaOrders } from '../demo.js';
+import { fmtDate, fmtYen } from '../format.js';
+import { dataTable, emptyBlock, h, metaList, panel, statusPill } from '../ui.js';
 
-export const meta = {
-  route: '/ta/orders',
-  nav: '注文',
-  title: '注文管理',
-  mode: 'ta'
-};
+export const meta = { route: '/ta/orders', nav: 'TA注文', title: '注文管理' };
 
 const SORT_KEYS = [
   'product', 'modelNumber', 'team', 'unitPriceValue', 'quantityValue',
@@ -24,10 +19,8 @@ const SORT_KEYS = [
 ];
 const state = {
   q: '', status: 'all', team: 'all',
-  sortKey: 'createdAt', sortDir: 'desc', selectedId: null,
-  selected: new Set()
+  sortKey: 'createdAt', sortDir: 'desc', selectedId: null
 };
-
 
 const numeric = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 const imageById = new Map();
@@ -46,18 +39,11 @@ export function render(data, ctx) {
     : [...new Set(rows.map((o) => o.status).filter(Boolean))];
   const teams = data.teams?.length
     ? data.teams.map((t) => t.label)
-    : (data.filters?.team?.length
-      ? data.filters.team.map((t) => t.label).filter((label) => label && label !== 'すべて')
-      : [...new Set(rows.map((o) => o.team).filter(Boolean))]);
+    : [...new Set(rows.map((o) => o.team).filter(Boolean))];
 
   readUrl(statuses, teams);
-  // 画面内の一括選択は、描画ごとに生きた id だけ残す
-  state.selected = new Set(
-    [...state.selected].filter((id) => rows.some((r) => sameId(r.id, id)))
-  );
 
   const listHost = h('div', { class: 'list' });
-  const bulkBar = h('div', { class: 'bulkbar', id: 'ta-bulk' });
   const countEl = h('p', {
     class: 'toolbar__count', id: 'result-count', role: 'status', 'aria-live': 'polite'
   });
@@ -69,7 +55,6 @@ export function render(data, ctx) {
         h('h1', { class: 'page-head__title', text: meta.title })),
       summary),
     buildToolbar(statuses, teams),
-    bulkBar,
     listHost);
 
   paint();
@@ -158,7 +143,8 @@ export function render(data, ctx) {
     const key = p.get('sort_by');
     if (SORT_KEYS.includes(key)) state.sortKey = key;
     state.sortDir = p.get('sort_direction') === 'asc' ? 'asc' : 'desc';
-    state.selectedId = parseOrderQueryId(p.get('order_id'));
+    const id = p.get('order_id');
+    state.selectedId = id && /^[0-9a-f-]{8,}$/i.test(id) ? id : null;
   }
 
   function syncUrl() {
@@ -168,7 +154,7 @@ export function render(data, ctx) {
     if (state.team !== 'all') p.set('team', state.team);
     p.set('sort_by', state.sortKey);
     p.set('sort_direction', state.sortDir);
-    if (state.selectedId != null) p.set('order_id', state.selectedId);
+    if (state.selectedId) p.set('order_id', state.selectedId);
     if (ctx.demo) p.set('demo', '1');
     history.replaceState(null, '', `${location.pathname}?${p}`);
   }
@@ -239,64 +225,14 @@ export function render(data, ctx) {
       countEl);
   }
 
-  function paintBulk() {
-    const n = state.selected.size;
-    const orderedSelected = [...state.selected]
-      .filter((id) => rows.some((r) => sameId(r.id, id) && r.status === '注文済み'));
-    bulkBar.replaceChildren(
-      h('div', { class: 'bulkbar__body' },
-        h('p', {
-          class: 'bulkbar__lede',
-          text: '選択した注文済みの注文を受取可能に変更できます（他の状態は除外）。'
-        }),
-        h('div', { class: 'bulkbar__actions' },
-          h('button', {
-            class: 'btn btn--primary', type: 'button',
-            disabled: orderedSelected.length ? null : true,
-            onclick: () => runBulk(orderedSelected)
-          }, '受取可能にする'),
-          h('span', {
-            class: 'bulkbar__count',
-            text: `選択 ${n} 件（注文済み ${orderedSelected.length} 件）`
-          }))));
-  }
-
-  async function runBulk(ids) {
-    if (!ids.length) return;
-    const ok = window.confirm(
-      `選択された${ids.length}件の注文済み状態の注文を「受取可能」に変更します。\nよろしいですか？`
-    );
-    if (!ok) return;
-    try {
-      if (ctx.demo) {
-        for (const id of ids) {
-          const row = rows.find((r) => sameId(r.id, id));
-          if (row) row.status = '受取可能';
-        }
-      } else {
-        await api.taBulkAvailable(ids);
-        ctx.invalidate?.(['/ta/orders', '/ta']);
-      }
-      state.selected.clear();
-      toasts.push(`${ids.length} 件を受取可能にしました`);
-      if (ctx.demo) paint();
-      else ctx.reload?.();
-    } catch (e) {
-      toasts.push(e.message || '一括更新に失敗しました');
-    }
-  }
-
   function paint() {
     const list = visible();
-    paintBulk();
 
     if (list.length) {
       listHost.replaceChildren(dataTable({
-        caption: 'TA の注文一覧。型番・ショップ・チームでも絞り込めます。チェックで一括更新、行を開くと右に詳細が出ます。',
-        tableClass: 'table--auto',
+        caption: 'TA の注文一覧。型番・ショップ・チームでも絞り込めます。行を開くと右に詳細が出ます。',
         columns: [
           { key: 'product', label: '商品', className: 'table__th--title' },
-          { key: '_check', label: '選択', className: 'table__th--status' },
           { key: 'modelNumber', label: '型番', className: 'table__th--model' },
           { key: 'team', label: 'チーム', className: 'table__th--team' },
           { key: 'quantityValue', label: '数量', className: 'table__th--qty' },
@@ -305,7 +241,6 @@ export function render(data, ctx) {
         ],
         sort: { key: state.sortKey, dir: state.sortDir },
         onSort: (key) => {
-          if (key === '_check') return;
           state.sortDir = state.sortKey === key && state.sortDir === 'asc' ? 'desc' : 'asc';
           state.sortKey = key;
           paint();
@@ -315,7 +250,7 @@ export function render(data, ctx) {
         rows: list.map((o) => ({
           id: o.id,
           idPrefix: 'order',
-          selected: sameId(o.id, state.selectedId),
+          selected: o.id === state.selectedId,
           onOpen: (id) => openDetail(id),
           cells: [
             {
@@ -325,21 +260,6 @@ export function render(data, ctx) {
                 h('span', { class: 'product__text' },
                   o.product,
                   o.shopName ? h('span', { class: 'cell__sub', text: o.shopName }) : null))
-            },
-            {
-              label: '選択',
-              value: h('input', {
-                type: 'checkbox',
-                class: 'bulk-check',
-                checked: state.selected.has(String(o.id)) || null,
-                onclick: (e) => e.stopPropagation(),
-                onchange: (e) => {
-                  const key = String(o.id);
-                  if (e.target.checked) state.selected.add(key);
-                  else state.selected.delete(key);
-                  paintBulk();
-                }
-              })
             },
             {
               label: '型番',
@@ -505,7 +425,7 @@ export function render(data, ctx) {
   }
 
   function openDetail(id, { focus = true } = {}) {
-    const o = rows.find((x) => sameId(x.id, id));
+    const o = rows.find((x) => x.id === id);
     if (!o) return;
 
     state.selectedId = id;
@@ -573,8 +493,6 @@ export function render(data, ctx) {
         h('span', { class: 'meta__label', text: 'ステータス' }),
         statusPill(o.status, { doneWhen: ['受取済み'] }));
 
-    const detailHost = h('div', {});
-
     panel.open({
       eyebrow: 'TA注文',
       title: o.product,
@@ -590,8 +508,7 @@ export function render(data, ctx) {
           ['数量', o.quantityText],
           ['合計', o.totalText],
           ['作成日時', o.createdText || '—']
-        ]),
-        detailHost
+        ])
       ],
       actions: options.length
         ? [
@@ -616,38 +533,7 @@ export function render(data, ctx) {
     });
 
     if (!o.imageUrl && !imageById.has(o.id)) requestImages([o.id]);
-    loadDetailExtra(o, detailHost);
     if (!focus) document.activeElement?.blur?.();
-  }
-
-  /** 詳細 API から、一覧に無い項目（チーム累計予算・商品URL・詳細フィールド）を足す。 */
-  async function loadDetailExtra(o, host) {
-    try {
-      const detail = ctx.demo
-        ? await demoTaOrder(o.id)
-        : await api.taOrder(o.id);
-      const shown = new Set(['単価', '数量', 'ショップ名', '型番']);
-      const entries = [];
-      if (detail.teamBudget) entries.push(['チーム累計予算', detail.teamBudget]);
-      for (const [k, v] of Object.entries(detail.fields || {})) {
-        if (shown.has(k) || v == null || v === '') continue;
-        entries.push([k, v]);
-      }
-      const productUrl = detail.fields?.['商品URL'] || detail.productUrl;
-      if (productUrl) {
-        entries.push(['商品URL', h('a', {
-          href: productUrl, target: '_blank', rel: 'noopener noreferrer',
-          text: productUrl
-        })]);
-      }
-      const blocks = [
-        entries.length ? metaList(entries) : null,
-        detail.history?.length ? historyTimeline(detail.history) : null
-      ].filter(Boolean);
-      if (blocks.length) host.replaceChildren(...blocks);
-    } catch {
-      // 一覧の値で詳細は表示できているので、追加分が取れなくても黙る
-    }
   }
 
   function productPhoto(o) {

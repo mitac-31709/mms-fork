@@ -7,20 +7,17 @@
  * `parse.js` から取り込んで重複させない。
  *
  * **検証できたことと、できなかったこと。**
- * 2026-10 時点の学生/TA アカウントで取り直した結果:
+ * クローンを取得したのは学生アカウントで、注文・機材・貸出・通知の
+ * どれも 0 件だった。そのため
  *
- *   - 注文の行 id は UUID。ステータスは
- *     保留中 / 注文済み / 受取可能 / 受取済み / キャンセル済み
- *   - 通知は 1 件以上あり、`PATCH .../mark_as_read` が使える
- *   - 機材・貸出のカード行は引き続き空のことがある
+ *   - 見出し / リード文 / 列見出し / 空状態の文言 → 実 HTML で検証済み
+ *   - 1 件ずつの行・カード・項目の構造 → **一度も見ていない（未検証）**
  *
+ * 未検証の部分は各関数の直前にその旨を書く。形を埋めるために値を作らず、
  * 読めなければ null を返して呼び出し側に判断を渡す。
  */
 
-import {
-  ORDER_STATUSES, extractSidePanel, parseOrderHistory, text, toIso,
-  parseColumns, parseEmptyState, parseIdToken
-} from './parse.js';
+import { text, toIso, parseColumns, parseEmptyState, parseIdToken } from './parse.js';
 
 /** 「¥1,200」「1,200円」「2」を数値にする。読めなければ null。
  *  0 と「読めなかった」を混ぜないため、NaN も 0 も作らない。 */
@@ -170,19 +167,13 @@ export function parseDashboard(html) {
   };
 }
 
-/** 注文ステータスの先頭装飾（絵文字・✓○）を外す。
- *  語彙自体は作らず、表示用の印だけ落とす（週報の `✓ 完了` → `完了` と同じ）。 */
-export function cleanOrderStatus(value) {
-  return String(value || '')
-    .replace(/^(?:[✓○×]|⏳|📋|✅|📦|❌|🚫)\s*/u, '')
-    .trim();
-}
-
 /** 注文の行。
- *  行 id は数字または UUID（`id="order_<id>"`）。Stimulus の
- *  `#order_<id>` / `[id^="order_"], [id^="order_card_"]` に合わせる。
- *  `<tbody>` だけを見るので、モバイル用の `order_card_<id>` とは重複しない。
- *  ステータス語彙は素通し。先頭の絵文字や ✓○ だけ落とす。 */
+ *  **未検証**: 取得したアカウントは注文が 0 件で、データの入った行を見ていない。
+ *  行を `<tr id="order_<id>">` で引くのは公開されている Stimulus の実装
+ *  （`user_order_sidebar_controller` の `#order_<id>`、`side_panel_controller` の
+ *  `[id^="order_"], [id^="order_card_"]`）に合わせたもの。
+ *  ここでは `<tbody>` の中だけを見るので、モバイル用の `order_card_<id>` とは重複しない。
+ *  ステータスは語彙を作らないよう、そのまま素通しする。 */
 export function parseOrderRows(html, columns) {
   const tbody = main(html).match(/<tbody\b[^>]*>([\s\S]*?)<\/tbody>/);
   if (!tbody) return [];
@@ -201,28 +192,25 @@ export function parseOrderRows(html, columns) {
     const byLabel = {};
     labels.forEach((label, i) => { byLabel[label] = cells[i] ?? ''; });
 
-    const idMatch = tr[1].match(/id="order_([^"]+)"/);
+    const idMatch = tr[1].match(/id="order_(\d+)"/);
     const unitPrice = byLabel['単価'] ?? '';
     const quantity = byLabel['数量'] ?? '';
     const total = byLabel['合計'] ?? '';
-    // 学生画面は「作成日」、TA 画面は「作成日時」。どちらでも拾う。
-    const createdAt = byLabel['作成日'] ?? byLabel['作成日時'] ?? '';
-    const statusRaw = byLabel['ステータス'] ?? '';
-    const status = cleanOrderStatus(statusRaw);
+    const createdAt = byLabel['作成日'] ?? '';
 
     rows.push({
-      id: idMatch ? parseIdToken(idMatch[1]) : null,
+      id: idMatch ? Number(idMatch[1]) : null,
       product: byLabel['商品'] ?? cells[0] ?? '',
       unitPrice,
       quantity,
       total,
-      status,
+      status: byLabel['ステータス'] ?? '',
       createdAt,
       createdAtISO: toIso(createdAt),
       unitPriceValue: toNumber(unitPrice),
       quantityValue: toNumber(quantity),
       totalValue: toNumber(total),
-      cells: cells.map((c, i) => (labels[i] === 'ステータス' ? status : c))
+      cells
     });
   }
   return rows;
@@ -545,79 +533,6 @@ export function parseTaOrders(html) {
   };
 }
 
-/** 学生の注文詳細 `/orders/:id`。
- *
- * TA の `/ta/orders/:id/details` と同じ器（side_panel の断片、
- * 実 HTML は全ページのこともある）。商品・ステータス・チーム・合計・
- * 項目（label/p 対）・チーム累計予算・注文ステータス履歴を取る。
- * 項目名は HTML の label を素通しし、語彙を作らない。
- */
-export function parseOrderDetail(html) {
-  const frame = /<turbo-frame\b[^>]*\bside_panel\b/i.test(String(html || ''))
-    ? extractSidePanel(html)
-    : String(html || '');
-  const body = frame;
-  const title = body.match(/<h2\b[^>]*class="[^"]*text-2xl[^"]*"[^>]*>([\s\S]*?)<\/h2>/i);
-
-  let status = '';
-  for (const s of ORDER_STATUSES) {
-    // ステータス pill 内の語だけ（商品名の隣接を拾わない）
-    if (new RegExp(`(?:animate-pulse|rounded-full)[\\s\\S]{0,80}>\\s*${s}\\s*<`).test(body)
-      || new RegExp(`>\\s*${s}\\s*<\\/span>`).test(body)) {
-      status = s;
-      break;
-    }
-  }
-  if (!status) {
-    for (const s of ORDER_STATUSES) {
-      if (body.includes(s)) { status = s; break; }
-    }
-  }
-
-  const team = (
-    body.match(/rounded-lg whitespace-nowrap">\s*<span[^>]*>([\s\S]*?)<\/span>/)
-  );
-  const total = (body.match(/text-3xl[^>]*>\s*([^<]+)\s*</) || [])[1] || null;
-
-  const fields = {};
-  const labelRe = /<label\b[^>]*>([\s\S]*?)<\/label>[\s\S]{0,80}?<p\b[^>]*>([\s\S]*?)<\/p>/gi;
-  let lm;
-  while ((lm = labelRe.exec(body))) {
-    const label = text(lm[1]);
-    const value = text(lm[2]);
-    if (label && value) fields[label] = value;
-  }
-  for (const label of ['単価', '数量', '販売サイトタイプ', 'ショップ名', '型番', '商品URL', 'メモ']) {
-    if (fields[label]) continue;
-    const re = new RegExp(
-      `<label\\b[^>]*>\\s*${label}\\s*<\\/label>[\\s\\S]{0,120}?<p\\b[^>]*>([\\s\\S]*?)<\\/p>`,
-      'i'
-    );
-    const m = body.match(re);
-    if (m) fields[label] = text(m[1]);
-  }
-
-  const budget = (body.match(/チーム累計予算使用額[\s\S]{0,200}?text-xl[^>]*>\s*([^<]+)/)
-    || [])[1] || null;
-
-  const id = parseIdToken(
-    (body.match(/\/orders\/([^/"'?]+)/) || [])[1]
-  );
-
-  return {
-    id,
-    product: title ? text(title[1]) : '',
-    status,
-    team: team ? text(team[1]) : null,
-    total: total ? text(total) : null,
-    totalValue: toNumber(total),
-    teamBudget: budget ? text(budget) : null,
-    fields,
-    history: parseOrderHistory(body),
-    editHref: id ? `/orders/${id}/edit` : null
-  };
-}
-
 /** 機材のカード。
  *  **未検証**: 取得したアカウントでは grid が空で、カードを 1 枚も見ていない。
  *  grid の直下に同じタグの子が並ぶ、という前提だけで数えている。
@@ -725,12 +640,11 @@ export function parseLoans(html) {
 }
 
 /** 通知の 1 件。
+ *  **未検証**: 取得したアカウントは通知が 0 件で、項目を 1 件も見ていない。
  *  印は公開されている JS に合わせる（`notification_list_controller` は
  *  `[data-notification-id]` を、`notifications.js` は `dataset.notificationId` を見る）。
- *  `read` は次の順で決める。真偽値を当てずっぽうで作らない。
- *    1. `data-read="true|false"`
- *    2. 未読向けの `data-notification-read`（既読ボタン）があれば未読
- *    3. どちらも無ければ null（わからない） */
+ *  `read` は既読/未読の描き分けが分からないので、`data-read` が無ければ null。
+ *  真偽値を当てずっぽうで作らない。 */
 function parseNotificationItem(item) {
   const { name, rest } = splitCard(item.html);
 
@@ -744,9 +658,6 @@ function parseNotificationItem(item) {
   if (body && at && !time) body = body.replace(at, ' ').replace(/\s+/g, ' ').trim() || null;
 
   const flag = item.html.match(/data-read="(true|false)"/);
-  let read = null;
-  if (flag) read = flag[1] === 'true';
-  else if (/\bdata-notification-read\b/.test(item.html)) read = false;
 
   return {
     id: item.id,
@@ -754,7 +665,7 @@ function parseNotificationItem(item) {
     body: body || null,
     at,
     atISO,
-    read
+    read: flag ? flag[1] === 'true' : null
   };
 }
 
